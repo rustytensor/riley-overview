@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """M2 gate, live part: the overlay in a nested Hyprland. Run by tests/run-overlay.sh under dp2-lock, never alone:
 
-  dp2-lock python3 -I tests/overlay/gate.py --stage STAGE --work WORK --shots SHOTS --vpointer VPOINTER
+  dp2-lock python3 -I tests/overlay/gate.py --stage STAGE --work WORK --shots SHOTS --vpointer VPOINTER \
+      --vkeyboard VKEYBOARD
 
 STAGE holds bin/riley-overview and share/riley-overview/{shell/, config.xsd} (a copy of the tree or of an installed
 prefix, so the overlay's path never matches a resident copy in Marc's session). WORK takes the nest's config, the
@@ -13,6 +14,8 @@ The nest (a window on an empty DP-2 workspace of Marc's session; nothing runs in
   RO-C  headless 3440x1440 at scale 1.25, position 3440,0   -> logical 2752x1152 (M1 area C)
   the nest's own window output (WAYLAND-1) is disabled, so these are the only outputs.
   No gaps, borders, rounding, shadows, blur or animations; dwindle always splits to the right.
+  The key: Super pressed alone (left Super, on release) runs the `global` dispatcher riley-overview:toggle, the bind
+  the lead gives Marc's session (docs/files.md); the overview's GlobalShortcut takes it.
   Workspace 1 on RO-A tiles; workspace 2 on RO-C floats (as hypr-float-mode writes it).
 Test windows (tests/overlay/colour.qml, one colour each, class "ro.<name>.qml", self-closing after 30 s, ended by
 their saved process IDs):
@@ -41,6 +44,8 @@ TOL_DEV = 1.5                # device px: 1 logical px times 1.25, plus rounding
 TOL_RGB = 24                 # per channel, for a solid colour scaled by the compositor and Qt
 TARGET_MS = 100              # brief: first frame within 100 ms of the key press
 VPOINTER = None              # the pointer helper (--vpointer)
+VKEYBOARD = None             # the keyboard helper (--vkeyboard)
+KEY_BIND = 'hl.bind("SUPER + SUPER_L", hl.dsp.global("riley-overview:toggle"), { release = true })'
 
 COLOURS = {'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255), 'yellow': (255, 255, 0),
            'magenta': (255, 0, 255)}
@@ -143,7 +148,7 @@ hl.monitor({ output = "RO-C", mode = "3440x1440@60", position = "3440x0", scale 
 hl.workspace_rule({ workspace = "1", monitor = "RO-A", default = true })
 hl.workspace_rule({ workspace = "2", monitor = "RO-C", default = true })
 hl.window_rule({ name = "float-workspace-2", match = { workspace = "2" }, float = true })   -- as hypr-float-mode writes it
-''' + '\n'.join(rules) + '\n')
+''' + KEY_BIND + '   -- the key: Super pressed alone\n' + '\n'.join(rules) + '\n')
     return cfg
 
 
@@ -523,36 +528,91 @@ def phase2(nest, run, stage, work, shots):
     ov.ipc('toggle')
     closed(nest, ov)
 
-    # The key path: the key runs `riley-overview toggle`; t0 is taken just before that command starts, the first
-    # frame is the latest of the surfaces' first frameSwapped after the show (hook, ms since the epoch).
-    total, ipc_part = [], []
+    # The key path (lead's decision on R1): the key is a Hyprland bind on the `global` dispatcher, so a key press
+    # starts no process. tests/overlay/vkeyboard.c stays connected to the nest as a virtual keyboard; for each toggle
+    # it taps left Super (press, then release; the bind fires on the release) and answers with T0, the wall clock
+    # read immediately before the press is written to the compositor. The first frame is the latest of the surfaces'
+    # first frameSwapped after the show (hook, ms since the epoch, Date.now()); key to first frame = frame - T0.
+    # The same key again closes the overlay.
+    kb = subprocess.Popen([str(VKEYBOARD), 'serve'], env=nest.client_env(), stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    run.procs.append(kb)
+
+    def tap(*keys):
+        kb.stdin.write('tap ' + ' '.join(keys) + '\n')
+        kb.stdin.flush()
+        out = kb.stdout.readline().split()
+        return float(out[1]) if len(out) == 2 and out[0] == 'ok' else None
+
+    total, via_key, closes = [], 0, 0
     seq = 2
+    for i in range(10):
+        time.sleep(0.25)
+        t0 = tap('super')
+        st = ov.show_file(seq, timeout=3) if t0 is not None else None
+        if not st or not st.get('surfaces'):
+            total.append(float('inf'))
+            print(f'     key {i + 1}: no show-{seq}.json (key sent: {t0 is not None})', flush=True)
+        else:
+            frame = max(s.get('firstFrameAt') or float('inf') for s in st['surfaces'])
+            total.append(frame - t0)
+            if st.get('shortcutAt') is not None and st.get('ipcAt') is None:
+                via_key += 1
+        seq += 1
+        time.sleep(0.05)
+        tap('super')
+        if closed(nest, ov):
+            closes += 1
+        else:
+            ov.ipc('hide')
+            closed(nest, ov)
+    ok_vals = [t for t in total if t != float('inf')]
+    med = statistics.median(total) if total else float('inf')
+    mx = max(total) if total else float('inf')
+    print(f'     key press to first frame (ms): {", ".join(f"{t:.1f}" for t in total)}', flush=True)
+    check(f'first frame within {TARGET_MS} ms of the key press, 10 presses: median {med:.1f} ms, max {mx:.1f} ms',
+          len(ok_vals) == 10 and mx <= TARGET_MS)
+    check('each of the 10 shows came through the global shortcut (shortcutAt set, ipcAt null)', via_key == 10,
+          f'{via_key} of 10')
+    check('the key again closes the overlay, 10 presses', closes == 10, f'{closes} of 10')
+
+    # Not gated, printed: Super held while another key is tapped (Super+A, no bind) and then released. GNOME opens
+    # nothing then; this shows what the release bind does with it.
+    time.sleep(0.25)
+    kb.stdin.write('down super\n'); kb.stdin.flush(); kb.stdout.readline()
+    tap('a')
+    kb.stdin.write('up super\n'); kb.stdin.flush(); kb.stdout.readline()
+    time.sleep(0.4)
+    chord_opened = bool((ov.state() or {}).get('shown'))
+    print(f'     not gated: Super+A then Super released opens the overview: {"yes" if chord_opened else "no"}',
+          flush=True)
+    if chord_opened:
+        ov.ipc('hide')
+        closed(nest, ov)
+        seq += 1
+    run.end(kb)
+
+    # Not gated, printed: the scripts' and the bar's path, `riley-overview toggle` (a `qs ipc` client process);
+    # t0 just before that command starts.
+    cmd_total, ipc_part = [], []
     for i in range(10):
         time.sleep(0.25)
         t0 = time.time() * 1000
         p = subprocess.Popen([str(ov.bin), 'toggle'], env=ov.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         st = ov.show_file(seq, timeout=3)
         p.wait(5)
-        if not st or not st.get('surfaces'):
-            total.append(float('inf'))
-            print(f'     toggle {i + 1}: no show-{seq}.json', flush=True)
-        else:
+        if st and st.get('surfaces'):
             frame = max(s.get('firstFrameAt') or float('inf') for s in st['surfaces'])
-            total.append(frame - t0)
+            cmd_total.append(frame - t0)
             ipc_part.append((st.get('ipcAt') or float('nan')) - t0)
         seq += 1
         q = subprocess.Popen([str(ov.bin), 'toggle'], env=ov.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         q.wait(5)
         closed(nest, ov)
-    ok_vals = [t for t in total if t != float('inf')]
-    med = statistics.median(total) if total else float('inf')
-    mx = max(total) if total else float('inf')
-    print(f'     key to first frame (ms): {", ".join(f"{t:.1f}" for t in total)}', flush=True)
-    if ipc_part:
-        print(f'     of which command start to IPC receipt (ms): median {statistics.median(ipc_part):.1f}, '
-              f'max {max(ipc_part):.1f}', flush=True)
-    check(f'first frame within {TARGET_MS} ms of the key, 10 toggles: median {med:.1f} ms, max {mx:.1f} ms',
-          len(ok_vals) == 10 and mx <= TARGET_MS)
+    if cmd_total:
+        print(f'     not gated: `riley-overview toggle` to first frame (ms): {", ".join(f"{t:.1f}" for t in cmd_total)}'
+              f'; median {statistics.median(cmd_total):.1f}, max {max(cmd_total):.1f}; of which command start to IPC '
+              f'receipt: median {statistics.median(ipc_part):.1f}, max {max(ipc_part):.1f}', flush=True)
     ov.stop()
 
 
@@ -586,9 +646,11 @@ def main():
     ap.add_argument('--work', required=True, type=Path)
     ap.add_argument('--shots', required=True, type=Path)
     ap.add_argument('--vpointer', required=True, type=Path)
+    ap.add_argument('--vkeyboard', required=True, type=Path)
     a = ap.parse_args()
-    global VPOINTER
+    global VPOINTER, VKEYBOARD
     VPOINTER = a.vpointer.resolve()
+    VKEYBOARD = a.vkeyboard.resolve()
     work, shots = a.work.resolve(), a.shots.resolve()
     work.mkdir(parents=True, exist_ok=True)
     shots.mkdir(parents=True, exist_ok=True)

@@ -8,7 +8,10 @@
 #     for the live part only, never while staging): one surface per output at its device size, the spread rects,
 #     the strip, the minimized row, the windows' colours at their spread rects (grim inside the nest), the
 #     wallpaper backdrop, theme and config, click to focus, Escape, toggle, strip click, and the first frame within
-#     100 ms of the toggle command over 10 toggles.
+#     100 ms of the key press over 10 presses: the key is Super alone bound to Hyprland's `global` dispatcher
+#     (riley-overview:toggle), pressed by a virtual keyboard (tests/overlay/vkeyboard.c) that is already connected,
+#     the start time read immediately before the press is sent; the same key closes it again. The `riley-overview
+#     toggle` (qs ipc) path is timed too and printed, not gated.
 #
 #   tests/run-overlay.sh           run the gate; prints PASS/FAIL per check, then GATE PASS or GATE FAIL
 #   tests/run-overlay.sh --plant   copy the tree to $FORGE/plant-m2, apply tests/faults/m2-*.patch, run the gate there
@@ -123,6 +126,10 @@ cp "$TREE"/tests/overlay/unit/tst_*.qml "$UNIT/tests/"
 if ! gcc -O2 -o "$BUILD/vpointer" "$TREE/tests/overlay/vpointer.c" -lwayland-client -lm > "$LOGS/vpointer.txt" 2>&1; then
     bad "tests/overlay/vpointer.c does not build: $(head -n 3 "$LOGS/vpointer.txt" | tr '\n' ' ')"
 fi
+# the gate's keyboard helper (real key presses inside the nest, for the global-shortcut key path)
+if ! gcc -O2 -o "$BUILD/vkeyboard" "$TREE/tests/overlay/vkeyboard.c" -lwayland-client -lxkbcommon > "$LOGS/vkeyboard.txt" 2>&1; then
+    bad "tests/overlay/vkeyboard.c does not build: $(head -n 3 "$LOGS/vkeyboard.txt" | tr '\n' ' ')"
+fi
 
 # Part 1: offscreen unit checks, one file at a time so a file that does not load is named.
 for t in model wallpaper; do
@@ -157,7 +164,7 @@ if [ -f "$STAGE/share/riley-overview/shell/shell.qml" ] && [ -x "$STAGE/bin/rile
     # setsid: a new session and process group whose id is the saved $! (no job control here, so setsid does not
     # fork), so an interrupted gate can end dp2-lock, timeout, the gate and everything it started by that ID.
     setsid "$HOME/.local/bin/dp2-lock" timeout -k 10 300 python3 -I "$TREE/tests/overlay/gate.py" \
-        --stage "$STAGE" --work "$LIVE" --shots "$SHOTS" --vpointer "$BUILD/vpointer" > "$LOGS/live.txt" 2>&1 &
+        --stage "$STAGE" --work "$LIVE" --shots "$SHOTS" --vpointer "$BUILD/vpointer" --vkeyboard "$BUILD/vkeyboard" > "$LOGS/live.txt" 2>&1 &
     group=$!
     wait "$group"
     rc=$?

@@ -40,7 +40,9 @@
 #     last line `shell: <prefix>/share/riley-overview/shell` (the directory `run` gives Quickshell);
 #     `riley-overview frobnicate`: exit 2, nothing on stdout, the usage line first on stderr;
 #   - sub-gates: GATE PASS, the log says `testing installed copy <prefix>`, and the counts of their last real runs
-#     (reports 1 to 3; their check lists have not changed since): M1 274 passed, M2 99, M3 174, 0 failed.
+#     (reports 1 to 3): M1 274 passed, M2 101, M3 174, 0 failed. M2 was 99; its one timing check of the
+#     `riley-overview toggle` command became three key-path checks (lead's decision on R1: time, shows through the
+#     global shortcut, the key closes it), so 99 - 1 + 3 = 101.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -195,7 +197,7 @@ check "launcher: an unknown command puts the usage line first on stderr" \
 if [ $fail -ne 0 ]; then
     bad "M1 to M3 not run: the install checks above failed"
 else
-    for g in "layout 274" "overlay 99" "interact 174"; do
+    for g in "layout 274" "overlay 101" "interact 174"; do
         set -- $g
         name=$1 want=$2
         log=$LOGS/run-$name.txt

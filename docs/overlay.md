@@ -164,6 +164,7 @@ rename; `seq` counts shows from 1 per instance). Times are `Date.now()` (ms sinc
 ```
 { "seq": 1, "shown": true,
   "ipcAt": 1794594750123,            // when the IPC call reached the handler (null if shown otherwise)
+  "shortcutAt": null,                // when the global shortcut event reached the shell (null if shown otherwise)
   "animationMs": 0,
   "configOk": false, "config": { ...config.mjs keys, the values in use... },
   "theme": { "base": "#rrggbb", "accent": "#rrggbb", "font": "..." },
@@ -191,3 +192,31 @@ already on (in the first integration run the hover stayed on the window under th
 gate's hover check warps 4 px short and sends one real 4 px motion through the virtual-pointer protocol
 (`tests/overlay/vpointer.c`, built by `run-overlay.sh`). `wtype -k Escape` reaches the surface that has exclusive
 keyboard focus.
+
+## How the M2 gate times the key (lead's decision on R1, 2026-11-13)
+
+The target is the first frame within 100 ms of the key press, measured from the key press. The key reaches the
+overview without starting a process: Hyprland's `global` dispatcher (`riley-overview:toggle`) sends an event over the
+`hyprland_global_shortcuts_v1` connection Quickshell already holds, and the shell's `GlobalShortcut` (appid
+`riley-overview`, name `toggle`) toggles the overview.
+
+- **The bind in the nest** (its throwaway `hyprland.lua`, `KEY_BIND` in `tests/overlay/gate.py`):
+  `hl.bind("SUPER + SUPER_L", hl.dsp.global("riley-overview:toggle"), { release = true })`, Super pressed alone, the
+  bind Marc's session gets.
+- **How the key is pressed:** `tests/overlay/vkeyboard.c` (built by `run-overlay.sh`), a virtual keyboard
+  (`zwp_virtual_keyboard_manager_v1`) connected to the nest's `WAYLAND_DISPLAY` for the whole timing phase, with a
+  US keymap from libxkbcommon. For each press the gate writes `tap super` to its stdin: it sends left Super down
+  (keycode 125) and its modifier state, flushes, then Super up and the state, and waits for the compositor to take
+  them (a roundtrip). Hyprland runs binds for virtual keyboards (it ignores one only when it belongs to the input
+  method), so this is the same path as a real keyboard. Not `wtype`: each `wtype` call is a new process that
+  connects and uploads a keymap before the key goes out, which would put a process start back into the measured time.
+- **Where the start time is taken:** in the helper, `clock_gettime(CLOCK_REALTIME)` immediately before the Super-down
+  event is written to the compositor; it answers `ok T0`. The end is the latest surface's `firstFrameAt`
+  (`Date.now()`, the same clock) in the show's state file. Key press to first frame = end - T0. The bind fires on
+  the release, which the helper sends right after the press, so a real press held longer adds only the time the
+  finger is down.
+- **Checks:** 10 presses, every one within 100 ms; every show has `shortcutAt` set and `ipcAt` null (it came through
+  the shortcut); the same key closes it each time.
+- **Printed, not gated:** the `riley-overview toggle` path (`qs ipc`, for scripts and the bar), timed from just before
+  that command starts, with the part from command start to IPC receipt; and whether Super held while A is tapped,
+  then released, opens the overview.
