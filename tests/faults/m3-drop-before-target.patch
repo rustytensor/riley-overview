@@ -1,0 +1,12 @@
+--- a/shell/lib/drop.mjs
++++ b/shell/lib/drop.mjs
+@@ -32,7 +32,8 @@
+     const e = (s.strip || []).find(r => holds(r, lx, ly));
+     if (e) {
+         if (e.id === src.workspace) return { kind: "none" };
+-        return { kind: "workspace", monitor: s.monitor, id: e.id, index: e.index };
++        // planted fault (M3): the window lands on the workspace before the target in the strip
++        return { kind: "workspace", monitor: s.monitor, id: (s.strip[e.index - 1] || e).id, index: e.index };
+     }
+     if (s.monitor !== src.monitor) return { kind: "monitor", monitor: s.monitor, id: s.workspace };
+     return { kind: "none" };

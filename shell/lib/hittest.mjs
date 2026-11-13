@@ -22,3 +22,27 @@ export function hitTest(px, py, windowRects, stripRects) {
         if (holds(wins[i], px, py)) return { kind: "window", id: wins[i].id };
     return { kind: "none" };
 }
+
+// ---- M3: the close button (docs/interact.md "shell/lib/hittest.mjs additions") ---------------------------------
+//
+//   CLOSE_SIZE = 24; closeRect(r) -> { x: r.x + r.w - 12, y: r.y - 12, w: 24, h: 24 }: centred on the top-right corner
+//   hitTestOverlay(px, py, windowRects, stripRects, highlightedId)
+//     -> the strip as hitTest | { kind: "close", id } (only the highlighted window's button) | the windows as hitTest
+//        | { kind: "none" }
+
+export const CLOSE_SIZE = 24;
+
+export function closeRect(r) {
+    const half = CLOSE_SIZE / 2;
+    return { x: r.x + r.w - half, y: r.y - half, w: CLOSE_SIZE, h: CLOSE_SIZE };
+}
+
+export function hitTestOverlay(px, py, windowRects, stripRects, highlightedId) {
+    for (const r of stripRects || [])
+        if (holds(r, px, py)) return { kind: "workspace", index: r.index };
+    if (highlightedId !== undefined && highlightedId !== null && highlightedId !== "") {
+        const h = (windowRects || []).find(r => r.id === highlightedId);
+        if (h && holds(closeRect(h), px, py)) return { kind: "close", id: h.id };
+    }
+    return hitTest(px, py, windowRects, []);
+}

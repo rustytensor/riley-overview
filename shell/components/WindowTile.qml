@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// One window in the overview: its live image, a hover frame around it, the app icon and title under it, and the
-// move between where the window really is and where the overview puts it. No input handling: the Overlay
-// hit-tests the same rects (docs/overlay.md "Components").
+// One window in the overview: its live image, a hover frame around it, the close button on its top-right corner,
+// the app icon and title under it, and the move between where the window really is and where the overview puts
+// it. No input handling: the Overlay hit-tests the same rects (docs/overlay.md and docs/interact.md "Components").
 //
 // The item itself is placed by the tile: its parent should be the surface (or an item covering it at 0,0), and
 // all rects are in that item's logical px.
@@ -23,6 +23,8 @@ Item {
     property int animationMs: 0
     property bool highlighted: false
     property bool open: false
+    // This window is being dragged: the tile stays at its spread rect, dimmed (the DragProxy follows the pointer).
+    property bool dragging: false
 
     // Looks; the Overlay may bind these to the Theme. Not part of the hit-test contract.
     property color accent: "#7aa2f7"
@@ -31,6 +33,8 @@ Item {
     property int titleSize: 12
 
     signal closeAnimationDone()
+    // open went true and the move reached the spread rect; sent at once when animationMs is 0.
+    signal openAnimationDone()
     signal closeRequested(string address)
 
     // 0 = at realRect, 1 = at spreadRect.
@@ -41,6 +45,11 @@ Item {
     readonly property bool hasContent: !toplevel || view.hasContent
     // The rect as drawn right now, monitor-relative logical.
     readonly property var drawnRect: ({ x: x, y: y, w: width, h: height })
+    // How many progress values strictly between 0 and 1 the move went through since open last changed (one per
+    // animation frame; 0 when the move was instant).
+    readonly property int steps: stepCount
+    property int stepCount: 0
+    onProgressChanged: if (progress > 0 && progress < 1) stepCount++
 
     function lerp(a, b) { return a + (b - a) * progress; }
     function num(r, k) { return r && isFinite(r[k]) ? r[k] : 0; }
@@ -50,12 +59,31 @@ Item {
     width: Math.max(0, lerp(num(realRect, "w"), num(spreadRect, "w")))
     height: Math.max(0, lerp(num(realRect, "h"), num(spreadRect, "h")))
 
-    NumberAnimation {
+    // The move is timed by the wall clock from the moment open changed, not from the first animation tick (an
+    // animation counted from its first tick ended up to two frames late in the nest). It lands on the frame nearest
+    // to that moment plus the duration: a frame less than half a frame before the end already shows the end.
+    // Ease out cubic.
+    property real moveFrom: 0
+    property real moveTo: 0
+    property real moveStart: 0
+    property int moveDuration: 0
+
+    FrameAnimation {
         id: move
-        target: tile
-        property: "progress"
-        easing.type: Easing.OutCubic
-        onFinished: if (!tile.open) tile.closeAnimationDone()
+        onTriggered: tile.stepMove()
+    }
+
+    function stepMove() {
+        const elapsed = Date.now() - moveStart;
+        const frameMs = move.smoothFrameTime > 0 ? Math.min(50, move.smoothFrameTime * 1000) : 1000 / 60;
+        const t = Math.min(1, Math.max(0, elapsed / moveDuration));
+        if (elapsed + frameMs / 2 >= moveDuration) {
+            move.stop();
+            progress = moveTo;
+            if (open) openAnimationDone(); else closeAnimationDone();
+            return;
+        }
+        progress = moveFrom + (moveTo - moveFrom) * (1 - Math.pow(1 - t, 3));
     }
 
     function run() {
@@ -64,16 +92,20 @@ Item {
         const dur = Math.max(0, Math.min(animationMs, 200));
         if (dur === 0 || progress === to) {
             progress = to;
-            if (!open) closeAnimationDone();
+            if (open) openAnimationDone(); else closeAnimationDone();
             return;
         }
-        move.from = progress;
-        move.to = to;
-        move.duration = Math.round(dur * Math.abs(to - progress));
+        moveFrom = progress;
+        moveTo = to;
+        moveStart = Date.now();
+        moveDuration = Math.max(1, Math.round(dur * Math.abs(to - progress)));
         move.start();
     }
 
-    onOpenChanged: run()
+    onOpenChanged: {
+        stepCount = 0;
+        run();
+    }
     Component.onCompleted: if (open) run()
 
     // Hover frame: outside the rect, never over the image. Drawn first so the image stays on top.
@@ -92,6 +124,7 @@ Item {
         anchors.fill: parent
         color: "#33000000"
         visible: !view.hasContent
+        opacity: tile.dragging ? 0.35 : 1
         IconImage {
             anchors.centerIn: parent
             implicitSize: Math.max(16, Math.min(64, Math.min(parent.width, parent.height) / 3))
@@ -107,23 +140,40 @@ Item {
         captureSource: tile.toplevel
         live: true
         paintCursor: false
+        opacity: tile.dragging ? 0.35 : 1
     }
 
-    // Close button stub (M3 wires the click through the Overlay's hit-test): outside the image's top-right corner.
-    Rectangle {
+    // Close button: a 24x24 disc of the accent centred on the rect's top-right corner, exactly at
+    // hittest.mjs closeRect (relative to the tile: x w - 12, y -12), above the image and the frame. The cross stays
+    // inside the middle 12x12 (two 10x2 bars at 45 degrees reach at most 4.3 px from the centre), so the disc is
+    // plain accent from 6 px outwards.
+    Item {
+        id: closeButton
+        z: 2
+        x: tile.width - 12
+        y: -12
         width: 24
         height: 24
-        radius: 12
-        x: parent.width - width / 2
-        y: -height / 2
-        color: tile.accent
-        visible: tile.highlighted && tile.open && tile.settled
-        Text {
-            anchors.centerIn: parent
-            text: "×"
-            color: tile.textColor
-            font.pixelSize: 16
-            font.bold: true
+        visible: tile.highlighted && tile.open && tile.settled && !tile.dragging
+        Rectangle {
+            anchors.fill: parent
+            radius: 12
+            color: tile.accent
+            antialiasing: true
+        }
+        Repeater {
+            model: [45, -45]
+            delegate: Rectangle {
+                required property var modelData
+                x: 7
+                y: 11
+                width: 10
+                height: 2
+                radius: 1
+                rotation: modelData
+                color: tile.textColor
+                antialiasing: true
+            }
         }
     }
 

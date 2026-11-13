@@ -11,7 +11,8 @@ import Quickshell.Hyprland
 // event (debounced) and on each show. One `sh` runs the four hyprctl calls; the replies are split on a record
 // separator line.
 //
-// Actions: focusWindow(address), switchWorkspace(monitor, id). Live images come from toplevelFor(address).
+// Actions: focusWindow(address), switchWorkspace(monitor, id), closeWindow(address), moveToWorkspace(address, id,
+// monitor). Live images come from toplevelFor(address). focusedMonitor: the name of the monitor with focused true.
 Singleton {
     id: root
 
@@ -22,6 +23,11 @@ Singleton {
     property bool loaded: false          // the first refresh has landed
     property int generation: 0           // counts finished refreshes (failed ones too)
     property bool hidden: true           // set by the shell: refresh less eagerly while hidden
+
+    readonly property string focusedMonitor: {
+        for (const m of monitors) if (m && m.focused === true) return String(m.name);
+        return "";
+    }
 
     signal refreshed(bool ok)
 
@@ -46,6 +52,48 @@ Singleton {
         Quickshell.execDetached(["sh", "-c", 'hyprctl dispatch "$1" >/dev/null && hyprctl dispatch "$2" >/dev/null', "sh",
                                  "hl.dsp.focus({ monitor = " + luaStr(monitor) + " })",
                                  "hl.dsp.focus({ workspace = " + luaStr(String(id)) + " })"]);
+    }
+
+    // The focused window, "" for none: Quickshell's live active toplevel (kept by Hyprland's events, so never a
+    // refresh behind), else the last refresh's focusHistoryID 0.
+    function activeAddress(): string {
+        const t = Hyprland.activeToplevel;
+        const a = t ? norm(t.address) : "";
+        if (a !== "") return "0x" + a;
+        for (const c of clients) if (c && c.focusHistoryID === 0) return String(c.address || "");
+        return "";
+    }
+
+    // The window still exists and sits on a workspace some monitor shows: focusing it switches nothing.
+    function onShownWorkspace(address): bool {
+        const want = norm(address);
+        if (want === "") return false;
+        const c = clients.find(c => c && norm(c.address) === want);
+        if (!c || !c.workspace) return false;
+        return monitors.some(m => m && m.activeWorkspace && m.activeWorkspace.id === c.workspace.id);
+    }
+
+    function closeWindow(address): void {
+        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.window.close({ window = " + luaStr("address:" + address) + " })"]);
+    }
+
+    function workspaceExists(id): bool {
+        for (const w of workspaces) if (w && w.id === id) return true;
+        return false;
+    }
+
+    // Hyprland 0.57's movetoworkspacesilent. A workspace that does not exist yet (the empty entry at the end of a
+    // strip) is created on the focused monitor, so that monitor is focused first: the new workspace then lands on
+    // the strip's monitor.
+    function moveToWorkspace(address, id, monitor): void {
+        const move = "hl.dsp.window.move({ workspace = " + luaStr(String(id)) + ", follow = false, window = " +
+                     luaStr("address:" + address) + " })";
+        if (monitor && !workspaceExists(Number(id))) {
+            Quickshell.execDetached(["sh", "-c", 'hyprctl dispatch "$1" >/dev/null && hyprctl dispatch "$2" >/dev/null', "sh",
+                                     "hl.dsp.focus({ monitor = " + luaStr(monitor) + " })", move]);
+        } else {
+            Quickshell.execDetached(["hyprctl", "dispatch", move]);
+        }
     }
 
     function norm(address): string {

@@ -150,6 +150,45 @@ are tested first; a point in a gap of the strip falls through to the windows. `w
 last rect that holds the point wins (it matters while windows animate and overlap). The result's `index` is the
 strip rect's `index`.
 
+## Interaction (M3)
+
+The interfaces are in `docs/interact.md`; this is how the code meets them.
+
+- **Pure parts.** `navigate.mjs` (arrow order), `search.mjs` (filter and the launcher's command line), `drop.mjs`
+  (drag threshold and drop target) and `hittest.mjs`'s `closeRect` and `hitTestOverlay` hold every rule the gate
+  pins. The QML only gathers inputs for them and acts on the result.
+- **One highlight.** `shell.qml` owns `highlighted` (`hovered` is a read-only alias for the M2 gate) and remembers
+  who set it: a surface (the pointer) or nobody (the keys). Pointer motion over nothing clears only a highlight
+  its own surface set, so a highlight made with the arrows survives a stray motion event. A highlight, close
+  button or drag whose window leaves Hyprland's client list is dropped on the next rebuild.
+- **Search.** `visibleList` is `filterWindows` over every surface's spread windows. Each surface draws, hit-tests
+  and navigates only those (`visibleRects()`); the spread itself is not recomputed, so tiles do not jump while
+  typing. The search field is drawn on every surface at `searchArea`.
+- **Keys.** Every surface forwards its key events to `handleKey` in the shell, so the result does not depend on
+  which surface Hyprland gave the keyboard (the one under the pointer). Arrows navigate on the surface holding the
+  highlight, else on Hyprland's focused monitor's surface, else on the first. Return with no visible match and a
+  query hides the overview and runs `launcherArgv(Config.values.launcher, query)` with `execDetached` only once the
+  surfaces are gone, so the launcher's own surface can take the keyboard.
+- **Pointer.** The surface's one MouseArea handles press, motion and release itself (no `onClicked`): a left press
+  on a window arms a drag; motion of 8 px or more (`dragStarted`) starts it and no click follows. While a button is
+  held Hyprland sends all motion and the release to the pressed surface, also over another output, in its own
+  coordinates; the global position is the monitor's position plus the local one, and `dropTarget` runs on that.
+  The drag proxy is drawn by the surface the pointer is over; the strip under it gets `dropIndex`.
+- **Hyprland.** `moveToWorkspace` dispatches `hl.dsp.window.move({ workspace, follow = false, window })`. A target
+  workspace Hyprland does not list yet (the empty entry) would open on the focused monitor, so the strip's
+  monitor is focused first, in the same `sh` call. `closeWindow` dispatches `hl.dsp.window.close`. The overview
+  stays open after both and re-lays out when Hyprland's events trigger the refresh.
+- **Test hook.** `anim.startedAt` is taken when the tiles' `open` is set; every tile delegate notes its
+  `openAnimationDone`, and when all have, `anim.doneAt` and the sum of their `steps` are recorded. The state file is
+  written after that (and M2's conditions), so it no longer waits a fixed `animationMs`. `snapshot()` returns the
+  same object at any moment, with `state()` under `live`.
+- **Focus on a plain close.** Hyprland leaves nothing focused when the exclusive-keyboard layer goes away (seen in
+  the nest), so `show()` notes the focused window (`Hyprland.activeToplevel`) and a close that focuses nothing else
+  (Escape, the toggle) gives it back, unless it was closed or moved off every shown workspace in the meantime.
+- **Move timing.** `WindowTile` times its move by the wall clock from the moment `open` changed (a
+  `FrameAnimation`), not from the first animation tick: a `NumberAnimation` ended up to two frames late in the nest
+  (227 ms for 200). The move lands on the frame nearest to start + `animationMs`.
+
 ## Gates
 
 - M1 `tests/run-layout.sh` (this milestone): 274 checks on hand-worked values (`tests/layout/cases.mjs` and the

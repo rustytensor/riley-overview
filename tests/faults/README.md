@@ -15,5 +15,6 @@ integrator writes `m2-*.patch`, `--plant` reports `no fault patch`.
 `tests/run-interact.sh --plant` does the same for M3 in `/srv/devops/forge/build/riley-overview/plant-m3` with every
 `m3-*.patch`. M3 fault (brief): a drop moves the window to the workspace before the target. The live drags catch it
 (`interact::drop: red is on workspace 3 (not 2 or 6)` and the drop on the empty entry, workspace 6, landing on 3);
-a fault placed in `dropTarget` is also caught by `drop::test_target`. Until the integrator writes `m3-*.patch`,
-`--plant` reports `no fault patch`.
+a fault placed in `dropTarget` is also caught by `drop::test_target`. `m3-drop-before-target.patch` puts it in
+`dropTarget` (the strip entry before the one under the pointer): caught by 6 `drop::test_target` cases and 5 live
+checks (both strip drags' drop targets and landing workspaces, and workspace 6 never appearing on RO-A).

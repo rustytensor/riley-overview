@@ -6,10 +6,13 @@ import Quickshell.Wayland
 import "components"
 import "lib/model.mjs" as Model
 import "lib/hittest.mjs" as Hit
+import "lib/drop.mjs" as Drop
+import "lib/strip.mjs" as Strip
 
 // One overview surface per screen (docs/overlay.md "Overlay window"): a full-screen layer-shell surface on the
 // overlay layer with the keyboard while shown. Hidden means unmapped; the scene stays loaded. One MouseArea takes
-// all input and hit-tests the same rects the components draw (lib/hittest.mjs).
+// all input and hit-tests the same rects the components draw (lib/hittest.mjs). Pointer, keys, search and drag and
+// drop: docs/interact.md; the state they share lives in the shell (shell.qml).
 PanelWindow {
     id: win
 
@@ -40,32 +43,123 @@ PanelWindow {
     function prepareShow(): void {
         firstFrameAt = 0;
         awaitingFrame = true;
+        press = null;
+        dragOwner = false;
         scene.forceActiveFocus();
         if (typeof strip.capture === "function") strip.capture();
     }
 
+    // The spread windows that match the search: the only ones drawn, hit-tested and navigated.
+    function visibleRects() {
+        if (!layout || !overview) return [];
+        return layout.windows.filter(w => overview.isVisible(w.address))
+                             .map(w => ({ id: w.address, x: w.x, y: w.y, w: w.w, h: w.h }));
+    }
+
     function windowRects() {
-        return layout ? layout.windows.map(w => ({ id: w.address, x: w.x, y: w.y, w: w.w, h: w.h })) : [];
+        return visibleRects();
+    }
+
+    // This surface's spread holds the window (visible or not).
+    function holds(address): bool {
+        if (!layout || !address) return false;
+        for (const w of layout.windows) if (w.address === address) return true;
+        return false;
     }
 
     function hitAt(x, y) {
         if (!layout) return { kind: "none" };
-        return Hit.hitTest(x, y, windowRects(), layout.strip);
+        return Hit.hitTestOverlay(x, y, windowRects(), layout.strip, overview ? overview.highlighted : "");
     }
 
     function hoverAt(x, y): void {
         if (!overview || !overview.shown) return;
         const h = hitAt(x, y);
-        overview.setHover(win, h.kind === "window" ? h.id : "");
+        if (h.kind === "close") {
+            overview.setHover(win, h.id);
+            overview.setOverClose(win, h.id);
+        } else {
+            overview.setHover(win, h.kind === "window" ? h.id : "");
+            overview.setOverClose(win, "");
+        }
+    }
+
+    // The tiles' open-animation state, for the shell's anim bookkeeping.
+    function tileStates() {
+        const out = [];
+        for (let i = 0; i < tiles.count; i++) {
+            const t = tiles.itemAt(i);
+            if (t) out.push({ done: t.doneSeen, steps: t.steps });
+        }
+        return out;
+    }
+
+    // ---- the pointer: press, motion (hover or drag), release (click or drop) ------------------------------------
+    property var press: null                 // { x, y, button, address } of the button held down
+    property bool dragOwner: false           // this surface started the drag in progress
+
+    function pointerPressed(x, y, button): void {
+        if (!overview || !overview.shown) { press = null; return; }
+        const h = hitAt(x, y);
+        press = { x: x, y: y, button: button, address: button === Qt.LeftButton && h.kind === "window" ? h.id : "" };
+    }
+
+    // x, y local; the compositor keeps sending motion to the pressed surface outside it, so the global position is
+    // this monitor's position plus the local one.
+    function pointerMoved(x, y): void {
+        if (!overview || !overview.shown) return;
+        const gx = (entry ? entry.x : 0) + x;
+        const gy = (entry ? entry.y : 0) + y;
+        if (dragOwner && overview.drag) {
+            overview.updateDrag(gx, gy);
+            return;
+        }
+        if (press && press.address !== "" && Drop.dragStarted(x - press.x, y - press.y)) {
+            const r = layout ? layout.windows.find(w => w.address === press.address) : null;
+            const pw = r && r.w > 0 ? Math.min(r.w, 300) : 0;
+            const ph = r && r.w > 0 ? r.h * pw / r.w : 0;
+            dragOwner = true;
+            overview.setOverClose(win, "");
+            overview.startDrag(win, press.address, gx, gy, pw, ph);
+            press = null;
+            return;
+        }
+        hoverAt(x, y);
+    }
+
+    function pointerReleased(x, y, button): void {
+        const p = press;
+        press = null;
+        if (dragOwner) {
+            dragOwner = false;
+            if (overview) overview.endDrag();
+            if (x >= 0 && y >= 0 && x < width && y < height) hoverAt(x, y);
+            return;
+        }
+        if (!p || p.button !== button) return;
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        activateAt(x, y, button);
+    }
+
+    function pointerCanceled(): void {
+        press = null;
+        if (dragOwner) {
+            dragOwner = false;
+            if (overview && overview.drag) overview.drag = null;
+        }
     }
 
     // A click at x, y (surface logical px). Returns what was hit, as the IPC click call reports it.
     function activateAt(x, y, button) {
         if (!overview || !overview.shown) return { kind: "hidden" };
         const h = hitAt(x, y);
+        if (h.kind === "close") {
+            if (button === Qt.LeftButton || button === Qt.MiddleButton) HyprModel.closeWindow(h.id);
+            return { kind: "close", address: h.id, monitor: monitorName };
+        }
         if (h.kind === "window") {
             if (button === Qt.LeftButton) overview.hide(h.id);
-            // middle click and the close button: M3
+            else if (button === Qt.MiddleButton) HyprModel.closeWindow(h.id);
             return { kind: "window", address: h.id, monitor: monitorName };
         }
         if (h.kind === "workspace") {
@@ -101,6 +195,7 @@ PanelWindow {
             workspace: e ? { id: e.workspace.id, name: e.workspace.name } : null,
             windows: L ? L.windows.map(w => ({
                 address: w.address, class: info[w.address].class, title: info[w.address].title,
+                visible: overview ? overview.isVisible(w.address) : true,
                 real: real[w.address], logical: r4(w, 1), device: r4(w, dpr) })) : [],
             minimized: L ? L.minimized.map(w => ({
                 address: w.address, class: info[w.address].class, title: info[w.address].title,
@@ -116,10 +211,7 @@ PanelWindow {
         focus: true
 
         Keys.onPressed: event => {
-            if (event.key === Qt.Key_Escape) {
-                win.overview.hide("");
-                event.accepted = true;
-            }
+            if (win.overview && win.overview.handleKey(event)) event.accepted = true;
         }
 
         // The first frame after a show: frameSwapped of the backing window (render thread, delivered queued).
@@ -148,12 +240,38 @@ PanelWindow {
             textColor: Theme.text
             panelColor: Theme.surface0
             fontFamily: Theme.font
+            dropIndex: {
+                const d = win.overview ? win.overview.drag : null;
+                return d && d.target && d.target.kind === "workspace" && d.target.monitor === win.monitorName
+                    ? d.target.index : -1;
+            }
+        }
+
+        SearchField {
+            rect: win.entry ? Strip.searchArea(win.entry.logical.w, win.entry.logical.h, Config.values)
+                            : ({ x: 0, y: 0, w: 0, h: 0 })
+            query: win.overview ? win.overview.query : ""
+            noMatch: win.overview ? win.overview.query !== "" && win.overview.visibleList.length === 0 : false
+            accent: Theme.accent
+            textColor: Theme.text
+            panelColor: Theme.surface0
+            fontFamily: Theme.font
         }
 
         Repeater {
+            id: tiles
             model: win.layout ? win.layout.windows : []
             delegate: WindowTile {
                 required property var modelData
+                // openAnimationDone seen since open last went true (the shell's anim bookkeeping)
+                property bool doneSeen: false
+                onOpenAnimationDone: {
+                    doneSeen = true;
+                    if (win.overview) win.overview.checkAnim();
+                }
+                onOpenChanged: if (!open) doneSeen = false
+                visible: win.overview ? win.overview.isVisible(modelData.address) : true
+                dragging: win.overview && win.overview.drag ? win.overview.drag.address === modelData.address : false
                 readonly property var src: win.entry ? win.entry.windows.find(w => w.address === modelData.address) : null
                 toplevel: HyprModel.toplevelFor(modelData.address)
                 address: modelData.address
@@ -162,7 +280,7 @@ PanelWindow {
                 realRect: src ? { x: src.x, y: src.y, w: src.w, h: src.h } : modelData
                 spreadRect: ({ x: modelData.x, y: modelData.y, w: modelData.w, h: modelData.h })
                 animationMs: win.overview ? win.overview.animationMs : 0
-                highlighted: win.overview ? win.overview.hovered === modelData.address : false
+                highlighted: win.overview ? win.overview.highlighted === modelData.address : false
                 open: win.overview ? win.overview.tilesOpen : false
                 accent: Theme.accent
                 textColor: Theme.text
@@ -187,14 +305,38 @@ PanelWindow {
             highlightedAddress: win.overview ? win.overview.hovered : ""
         }
 
+        // The window being dragged, under the pointer, on the surface the pointer is over.
+        DragProxy {
+            readonly property var d: win.overview ? win.overview.drag : null
+            visible: d !== null && d.over === win.monitorName
+            toplevel: d ? HyprModel.toplevelFor(d.address) : null
+            appClass: {
+                if (!d) return "";
+                for (const e of win.overview.model)
+                    for (const w of e.windows) if (w.address === d.address) return w.class;
+                return "";
+            }
+            px: d && win.entry ? d.gx - win.entry.x : 0
+            py: d && win.entry ? d.gy - win.entry.y : 0
+            w: d ? d.w : 0
+            h: d ? d.h : 0
+            accent: Theme.accent
+        }
+
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
+            preventStealing: true
             acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
-            onEntered: win.hoverAt(mouseX, mouseY)
-            onPositionChanged: mouse => win.hoverAt(mouse.x, mouse.y)
-            onExited: if (win.overview) win.overview.setHover(win, "")
-            onClicked: mouse => win.activateAt(mouse.x, mouse.y, mouse.button)
+            onEntered: if (!win.dragOwner) win.hoverAt(mouseX, mouseY)
+            onPositionChanged: mouse => win.pointerMoved(mouse.x, mouse.y)
+            onExited: if (win.overview && !win.dragOwner) {
+                win.overview.setHover(win, "");
+                win.overview.setOverClose(win, "");
+            }
+            onPressed: mouse => win.pointerPressed(mouse.x, mouse.y, mouse.button)
+            onReleased: mouse => win.pointerReleased(mouse.x, mouse.y, mouse.button)
+            onCanceled: win.pointerCanceled()
         }
     }
 }
