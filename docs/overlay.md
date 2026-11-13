@@ -165,6 +165,7 @@ rename; `seq` counts shows from 1 per instance). Times are `Date.now()` (ms sinc
 { "seq": 1, "shown": true,
   "ipcAt": 1794594750123,            // when the IPC call reached the handler (null if shown otherwise)
   "shortcutAt": null,                // when the global shortcut event reached the shell (null if shown otherwise)
+  "showDoneAt": 1794594750125,       // when show() returned: the shell's own part ends here, the rest is drawing
   "animationMs": 0,
   "configOk": false, "config": { ...config.mjs keys, the values in use... },
   "theme": { "base": "#rrggbb", "accent": "#rrggbb", "font": "..." },

@@ -1,13 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# riley-overview [run|toggle|show|hide]
-#   run (default): start the resident overview (Quickshell with this config).
+# riley-overview [run|toggle|show|hide|--help]
+#   run (default): start the resident overview (Quickshell with this config), hidden; does nothing when one with the
+#     same config already runs.
 #   toggle | show | hide: tell the running overview over Quickshell IPC.
+#   --help: the usage and the config directory `run` uses; exit 0. Any other command: the usage on stderr, exit 2.
 # The config directory is $RILEYOVERVIEW_SHELL, else <prefix>/share/riley-overview/shell next to this script's
-# bin/, else the source tree's shell/.
+# bin/, else the source tree's shell/; made absolute (pwd -P) so `run` and `toggle` always name the same instance.
 set -eu
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd -P)
 if [ -n "${RILEYOVERVIEW_SHELL:-}" ]; then
     shell=$RILEYOVERVIEW_SHELL
 elif [ -f "$here/../share/riley-overview/shell/shell.qml" ]; then
@@ -15,9 +17,18 @@ elif [ -f "$here/../share/riley-overview/shell/shell.qml" ]; then
 else
     shell=$here/../shell
 fi
+[ -d "$shell" ] && shell=$(cd "$shell" && pwd -P)
+usage() {
+    echo "usage: riley-overview [run|toggle|show|hide]"
+    echo "  run     start the resident overview, hidden (the default; does nothing if it already runs)"
+    echo "  toggle  show the overview, or hide it when it is shown"
+    echo "  show    show the overview"
+    echo "  hide    hide the overview"
+}
 cmd=${1:-run}
 case $cmd in
-    run) exec qs -p "$shell" ;;
+    run) exec qs -n -p "$shell" ;;
     toggle|show|hide) exec qs -p "$shell" ipc call overview "$cmd" ;;
-    *) echo "usage: riley-overview [run|toggle|show|hide]" >&2; exit 2 ;;
+    -h|--help) usage; echo "shell: $shell" ;;
+    *) usage >&2; exit 2 ;;
 esac

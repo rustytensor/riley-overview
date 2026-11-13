@@ -1,0 +1,11 @@
+--- a/data/riley-overview.service.in	2026-11-13 14:42:26.337384589 -0500
++++ b/data/riley-overview.service.in	2026-11-13 14:42:26.338901383 -0500
+@@ -6,7 +6,7 @@
+ 
+ [Service]
+ Type=simple
+-ExecStart=@BINDIR@/riley-overview run
++ExecStart=@BINDIR@/../libexec/riley-overview run
+ Restart=on-failure
+ RestartSec=2
+ 

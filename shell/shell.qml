@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// riley-overview: the Quickshell config. Resident and hidden; `riley-overview toggle` (IPC target "overview") shows
-// one overview surface per screen (Overlay.qml). docs/overlay.md and docs/interact.md have the interfaces,
+// riley-overview: the Quickshell config. Resident and hidden; the key (a Hyprland `global` bind on
+// riley-overview:toggle, the GlobalShortcut below) or `riley-overview toggle` (IPC target "overview", for scripts and
+// the bar) shows one overview surface per screen (Overlay.qml). docs/overlay.md and docs/interact.md have the interfaces,
 // docs/design.md the reasons.
 //
 // The shell holds what all surfaces share: the highlight (one for the whole overview, set by the pointer and the
@@ -10,6 +11,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import "lib/model.mjs" as Model
 import "lib/wallpaper.mjs" as Wallpaper
 import "lib/navigate.mjs" as Nav
@@ -24,7 +26,8 @@ ShellRoot {
     readonly property bool mapped: shown || closing
     property bool tilesOpen: false           // WindowTile.open: false at the real rects, true at the spread rects
     property int seq: 0                      // shows since start
-    property var ipcAt: null
+    property var ipcAt: null                 // when the show's IPC call reached the handler (else null)
+    property var shortcutAt: null            // when the show's global shortcut event reached the shell (else null)
     property string highlighted: ""          // an address or ""
     readonly property string hovered: highlighted   // the M2 name, kept for its gate
     property var hoverSource: null           // the surface whose pointer set the highlight; null: the keys did
@@ -65,6 +68,10 @@ ShellRoot {
 
     // the test hook's bookkeeping for the current show
     property bool hookPending: false
+    property var showDoneAt: null            // when show() returned (state file: the shell's own part of the time)
+    // The refresh a show starts (a hyprctl child process) waits for every surface's first frame, so starting that
+    // process is not on the way to the first frame; the overview draws from the model Hyprland's events keep.
+    property bool refreshPending: false
     property int showGeneration: 0
 
     function entryFor(name) {
@@ -300,7 +307,8 @@ ShellRoot {
 
     property bool showing: false             // inside show(), before shown goes true
 
-    function show(viaIpc): void {
+    // via: "ipc", "shortcut" or nothing (the timing fields of the state file say which path showed it)
+    function show(via): void {
         if (shown) return;
         const t = Date.now();
         if (closing) {
@@ -319,7 +327,8 @@ ShellRoot {
         drag = null;
         anim = { startedAt: null, doneAt: null, frames: 0 };
         seq++;
-        ipcAt = viaIpc ? t : null;
+        ipcAt = via === "ipc" ? t : null;
+        shortcutAt = via === "shortcut" ? t : null;
         readRecords();
         readWallpapers();
         rebuild();
@@ -328,11 +337,33 @@ ShellRoot {
         showGeneration = HyprModel.generation;
         hookPending = true;
         HyprModel.hidden = false;
-        HyprModel.refresh();
+        refreshPending = true;
+        refreshFallback.restart();
         if (animationMs === 0) startOpen();
         showing = false;
         shown = true;
         if (!tilesOpen) Qt.callLater(() => { if (root.shown && !root.tilesOpen) root.startOpen(); });
+        showDoneAt = Date.now();
+    }
+
+    function allFramed(): bool {
+        const surfaces = overlays.instances;
+        for (let i = 0; i < surfaces.length; i++)
+            if (!(surfaces[i].firstFrameAt > 0)) return false;
+        return true;
+    }
+
+    // The show's refresh: once every surface has its first frame, or after refreshFallback at the latest.
+    function startShowRefresh(): void {
+        if (!refreshPending) return;
+        refreshPending = false;
+        refreshFallback.stop();
+        HyprModel.refresh();
+    }
+
+    function surfaceFramed(): void {
+        if (refreshPending && allFramed()) startShowRefresh();
+        checkHook();
     }
 
     // focusAddress: a window to focus once the surfaces are gone ("" for none); launch: argv to run then (or none).
@@ -370,9 +401,9 @@ ShellRoot {
         if (argv) Quickshell.execDetached(argv);
     }
 
-    function toggle(viaIpc): void {
+    function toggle(via): void {
         if (shown) hide("");
-        else show(viaIpc);
+        else show(via);
     }
 
     // Every surface has drawn its first frame, the refresh started by the show has landed and the open animation
@@ -394,7 +425,7 @@ ShellRoot {
         const out = [];
         for (let i = 0; i < surfaces.length; i++) out.push(surfaces[i].describe());
         return {
-            seq: seq, shown: shown, ipcAt: ipcAt, animationMs: animationMs,
+            seq: seq, shown: shown, ipcAt: ipcAt, shortcutAt: shortcutAt, showDoneAt: showDoneAt, animationMs: animationMs,
             query: query, highlighted: highlighted,
             anim: { startedAt: anim.startedAt, doneAt: anim.doneAt, frames: anim.frames },
             configOk: Config.ok, config: Config.values,
@@ -432,11 +463,17 @@ ShellRoot {
         model: Quickshell.screens
         delegate: Overlay {
             overview: root
-            onFramed: root.checkHook()
+            onFramed: root.surfaceFramed()
         }
     }
 
     TestHook { id: hook }
+
+    Timer {
+        id: refreshFallback
+        interval: 150
+        onTriggered: root.startShowRefresh()
+    }
 
     Timer {
         id: closeTimer
@@ -462,10 +499,23 @@ ShellRoot {
         printErrors: false
     }
 
+    // The key path: Hyprland's `global` dispatcher (riley-overview:toggle) reaches this over the compositor's own
+    // connection, so a key press starts no process. A bind on press sends pressed, then released when the key goes up;
+    // a release bind (Super pressed alone) sends released only. Either way the toggle runs once per key press.
+    GlobalShortcut {
+        id: toggleShortcut
+        appid: "riley-overview"
+        name: "toggle"
+        description: "Show or hide the overview"
+        property bool sawPress: false
+        onPressed: { sawPress = true; root.toggle("shortcut"); }
+        onReleased: { if (!sawPress) root.toggle("shortcut"); sawPress = false; }
+    }
+
     IpcHandler {
         target: "overview"
-        function toggle(): void { root.toggle(true); }
-        function show(): void { root.show(true); }
+        function toggle(): void { root.toggle("ipc"); }
+        function show(): void { root.show("ipc"); }
         function hide(): void { root.hide(""); }
         // test only: answer "disabled" unless RILEYOVERVIEW_TEST_DIR is set
         function state(): string {

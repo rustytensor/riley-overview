@@ -1,0 +1,14 @@
+# Written by riley-overview's install.sh. install.sh --uninstall removes it.
+[Unit]
+Description=riley-overview: the Activities overview, resident and hidden until toggled
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/riley-overview run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
