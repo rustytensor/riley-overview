@@ -11,3 +11,9 @@ from the placement in `shell/lib/spread.mjs` is caught by `spread::test_no_overl
 ways: the layer size in `hyprctl layers` (`overlay::RO-C surface covers the monitor`), the hook's device size
 (`overlay::RO-C surface device size`), and the colours at the spread rects in the grim screenshot. Until the
 integrator writes `m2-*.patch`, `--plant` reports `no fault patch`.
+
+`tests/run-interact.sh --plant` does the same for M3 in `/srv/devops/forge/build/riley-overview/plant-m3` with every
+`m3-*.patch`. M3 fault (brief): a drop moves the window to the workspace before the target. The live drags catch it
+(`interact::drop: red is on workspace 3 (not 2 or 6)` and the drop on the empty entry, workspace 6, landing on 3);
+a fault placed in `dropTarget` is also caught by `drop::test_target`. Until the integrator writes `m3-*.patch`,
+`--plant` reports `no fault patch`.
