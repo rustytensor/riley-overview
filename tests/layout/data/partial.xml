@@ -1,0 +1,5 @@
+<overview xmlns="urn:riley-overview:config" version="1">
+  <!-- only two values; the rest default -->
+  <window-spacing> 32 </window-spacing>
+  <launcher>fuzzel --prompt=&quot;run &quot;</launcher>
+</overview>

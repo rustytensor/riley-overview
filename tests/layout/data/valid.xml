@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every element set to a non-default value. -->
+<overview xmlns="urn:riley-overview:config" version="1">
+  <launcher>fuzzel --dmenu</launcher>
+  <margin>32</margin>
+  <strip-height>100</strip-height>
+  <strip-spacing>12</strip-spacing>
+  <search-height>44</search-height>
+  <section-gap>20</section-gap>
+  <window-spacing>30</window-spacing>
+  <max-scale>0.9</max-scale>
+  <animation-ms>150</animation-ms>
+</overview>

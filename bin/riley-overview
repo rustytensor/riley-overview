@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# riley-overview [run|toggle|show|hide]
+#   run (default): start the resident overview (Quickshell with this config).
+#   toggle | show | hide: tell the running overview over Quickshell IPC.
+# The config directory is $RILEYOVERVIEW_SHELL, else <prefix>/share/riley-overview/shell next to this script's
+# bin/, else the source tree's shell/.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+if [ -n "${RILEYOVERVIEW_SHELL:-}" ]; then
+    shell=$RILEYOVERVIEW_SHELL
+elif [ -f "$here/../share/riley-overview/shell/shell.qml" ]; then
+    shell=$here/../share/riley-overview/shell
+else
+    shell=$here/../shell
+fi
+cmd=${1:-run}
+case $cmd in
+    run) exec qs -p "$shell" ;;
+    toggle|show|hide) exec qs -p "$shell" ipc call overview "$cmd" ;;
+    *) echo "usage: riley-overview [run|toggle|show|hide]" >&2; exit 2 ;;
+esac

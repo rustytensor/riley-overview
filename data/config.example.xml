@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- riley-overview config: ~/.config/riley-overview/config.xml. Every element is optional; these are the defaults. -->
+<overview xmlns="urn:riley-overview:config" version="1">
+  <margin>24</margin>
+  <strip-height>120</strip-height>
+  <strip-spacing>16</strip-spacing>
+  <search-height>40</search-height>
+  <section-gap>16</section-gap>
+  <window-spacing>24</window-spacing>
+  <max-scale>1.0</max-scale>
+  <animation-ms>200</animation-ms>
+  <launcher>fuzzel</launcher>
+</overview>

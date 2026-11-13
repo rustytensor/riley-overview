@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  The overview's config: $XDG_CONFIG_HOME/riley-overview/config.xml (default ~/.config/riley-overview/config.xml).
+  The overview validates the file against this schema every time it reads it. A file that does not validate is not
+  used at all: every value takes its default and a notification says why.
+
+  Every element is optional and may come in any order; a missing element takes its default. Sizes are logical
+  pixels of the monitor (device pixels divided by the monitor's scale).
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:c="urn:riley-overview:config"
+           targetNamespace="urn:riley-overview:config"
+           elementFormDefault="qualified">
+
+  <xs:element name="overview">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="margin" type="c:margin" minOccurs="0"/>
+        <xs:element name="strip-height" type="c:stripHeight" minOccurs="0"/>
+        <xs:element name="strip-spacing" type="c:gap" minOccurs="0"/>
+        <xs:element name="search-height" type="c:searchHeight" minOccurs="0"/>
+        <xs:element name="section-gap" type="c:gap" minOccurs="0"/>
+        <xs:element name="window-spacing" type="c:gap" minOccurs="0"/>
+        <xs:element name="max-scale" type="c:maxScale" minOccurs="0"/>
+        <xs:element name="animation-ms" type="c:animationMs" minOccurs="0"/>
+        <xs:element name="launcher" type="c:launcher" minOccurs="0"/>
+      </xs:all>
+      <xs:attribute name="version" use="required">
+        <xs:annotation>
+          <xs:documentation>The format version. This schema is version 1.</xs:documentation>
+        </xs:annotation>
+        <xs:simpleType>
+          <xs:restriction base="xs:token">
+            <xs:enumeration value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- MARGIN: space between the monitor's edges and the overview's content, 0 to 400. Default 24. -->
+  <xs:simpleType name="margin">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:pattern value="[0-9]+"/>
+      <xs:maxInclusive value="400"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- STRIP-HEIGHT: height of the workspace strip at the top, 40 to 400. Default 120. -->
+  <xs:simpleType name="stripHeight">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:pattern value="[0-9]+"/>
+      <xs:minInclusive value="40"/>
+      <xs:maxInclusive value="400"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- STRIP-SPACING (default 16), SECTION-GAP (between strip, search field and windows; default 16),
+       WINDOW-SPACING (least gap between two spread windows; default 24): 0 to 200. -->
+  <xs:simpleType name="gap">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:pattern value="[0-9]+"/>
+      <xs:maxInclusive value="200"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- SEARCH-HEIGHT: height of the search field, 20 to 200. Default 40. -->
+  <xs:simpleType name="searchHeight">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:pattern value="[0-9]+"/>
+      <xs:minInclusive value="20"/>
+      <xs:maxInclusive value="200"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- MAX-SCALE: the largest scale a spread window may get; above 0, at most 1 (never enlarged). Default 1. -->
+  <xs:simpleType name="maxScale">
+    <xs:restriction base="xs:decimal">
+      <xs:minExclusive value="0"/>
+      <xs:maxInclusive value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ANIMATION-MS: open and close animation length, 0 (off) to 200. Default 200. Riley's animations setting off
+       turns animations off whatever this says. -->
+  <xs:simpleType name="animationMs">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:pattern value="[0-9]+"/>
+      <xs:maxInclusive value="200"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- LAUNCHER: the command that gets the search text when Enter finds no window; one line, not only spaces.
+       Default "fuzzel". -->
+  <xs:simpleType name="launcher">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[^\r\n]*[^\s][^\r\n]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>
