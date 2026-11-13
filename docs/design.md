@@ -28,8 +28,13 @@ What Quickshell does not give, and how it is covered:
 
 | Path | What |
 | --- | --- |
-| `shell/shell.qml` | The Quickshell root: IPC target `overview` (`toggle`, `show`, `hide`), one overlay per screen (M2). |
-| `shell/lib/*.mjs` | Pure logic, no Quickshell imports: `spread.mjs`, `strip.mjs`, `hittest.mjs`, `config.mjs`. Tested offscreen. |
+| `shell/shell.qml` | The Quickshell root: IPC target `overview`, show/hide state, one `Overlay` per screen, the test hook. |
+| `shell/Overlay.qml` | One layer-shell surface per screen: lays out with `lib/model.mjs`, composes the components, one `MouseArea`, keys. |
+| `shell/HyprModel.qml` | Singleton: monitors, workspaces, clients and `animations:enabled` from `hyprctl -j`; focus and workspace switch. |
+| `shell/Config.qml`, `shell/Theme.qml` | Singletons: the config (xmllint, then `config.mjs`) and the bar's colours and font. |
+| `shell/TestHook.qml` | The state files of `docs/overlay.md`, only with `RILEYOVERVIEW_TEST_DIR` set. |
+| `shell/components/*.qml` | `WindowTile`, `Backdrop`, `WorkspaceStrip`, `MinimizedRow`: drawing only, no input. |
+| `shell/lib/*.mjs` | Pure logic, no Quickshell imports: `spread.mjs`, `strip.mjs`, `hittest.mjs`, `config.mjs`, `model.mjs`, `wallpaper.mjs`. Tested offscreen. |
 | `data/config.xsd` | The config schema; `data/config.example.xml` spells out the defaults. |
 | `bin/riley-overview` | `riley-overview [run\|toggle\|show\|hide]`. |
 | `tests/run-layout.sh` | M1 gate (Qt Quick Test with `qmltestrunner-qt6`, `QT_QPA_PLATFORM=offscreen`, plus xmllint). |
@@ -40,6 +45,34 @@ Installed layout (M4, `RILEYOVERVIEW_PREFIX` in the gates): `$PREFIX/bin/riley-o
 
 The pure modules are ES modules (`.mjs`), imported in QML with `import "lib/spread.mjs" as Spread`; they may import
 each other with relative paths. The tests are Qt Quick Test files and nothing else; there is no second test runner.
+
+## The overlay (M2)
+
+The interfaces are in `docs/overlay.md`; this is how the code meets them.
+
+- **Resident, hidden, unmapped.** Quickshell starts with the session and loads the whole scene once. Each screen's
+  `PanelWindow` is only made visible on a show, so a hidden overview has no layer surface at all. A show maps the
+  surfaces and draws from what is already known; nothing is fetched first.
+- **Hyprland data is kept current while hidden.** `HyprModel` runs `hyprctl -j monitors`, `workspaces`, `clients`
+  and `getoption animations:enabled` in one `sh` (the replies split on a record-separator line) at start, on every
+  Hyprland event (debounced: 150 ms while hidden, 30 ms while shown; our own `openlayer`/`closelayer` events are
+  ignored) and on each show. The `hyprctl` shapes go straight into `lib/model.mjs`.
+- **Read on each show:** hypr-minimize's `minimized.json` and hyprpaper's config, both small, read synchronously.
+  The config and `bar.json` are watched and reloaded when they change.
+- **Model to pixels.** `overviewModel` gives one entry per monitor; each `Overlay` takes its own by screen name and
+  `layoutMonitor` gives the rects it draws and hit-tests. The model is replaced only when it really changed, so a
+  refresh that brings nothing new does not rebuild the tiles.
+- **Input.** One `MouseArea` per surface: hover sets the highlighted window; a left click on a window closes the
+  overview and then focuses the window (after the surfaces are gone, so the layer's keyboard grab cannot undo the
+  focus); a click on a strip workspace focuses that monitor, then that workspace (a new workspace opens on the
+  focused monitor), and the overview stays open; a click on nothing closes. Escape closes and leaves the focus.
+- **Animations.** `animationMs` is 0 when `animations:enabled` is false, else the config value capped at 200. A
+  show sets the tiles' `open` one event-loop turn after mapping (at once with 0); a hide sets it false and unmaps
+  after `animationMs`.
+- **First frame.** Each surface records the first `frameSwapped` of its window after the show and reads the
+  window's `devicePixelRatio` then (not earlier: before the first frame the surface has no output yet). The state
+  file is written once every surface has a first frame, the refresh started by the show has landed, and the open
+  animation's time has passed.
 
 ## Coordinates
 
