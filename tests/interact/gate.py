@@ -663,7 +663,10 @@ def phase_keys(nest, ov, wins, shots):
               f'shown {(s or {}).get("shown")} visible {sorted(vis)} highlighted {name_of.get((s or {}).get("highlighted"))}')
         wtype(nest, '-k', 'Escape')
         check('Escape with no query closes', closed(nest, ov))
-        check('the focus stayed on red', (nest.j('activewindow') or {}).get('address') == addr['red'])
+        # the overview gives the focus back once its surfaces are gone: wait for it as for the Return checks
+        check('the focus stayed on red',
+              nest.wait(lambda: (nest.j('activewindow') or {}).get('address') == addr['red'], timeout=2),
+              f'active {(nest.j("activewindow") or {}).get("class")}')
 
     # no match -> the launcher
     st = show(ov, 4)
