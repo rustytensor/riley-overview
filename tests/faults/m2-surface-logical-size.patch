@@ -1,0 +1,16 @@
+--- a/shell/Overlay.qml
++++ b/shell/Overlay.qml
+@@ -30,7 +30,12 @@
+     screen: modelData
+     visible: overview ? overview.mapped : false
+     color: "black"
+-    anchors { top: true; bottom: true; left: true; right: true }
++    // planted fault (M2): on a scaled output the surface takes the monitor's logical size as if it were device
++    // pixels, so it covers only 1/scale of the output
++    readonly property real outScale: modelData && modelData.devicePixelRatio > 0 ? modelData.devicePixelRatio : 1
++    anchors { top: true; bottom: outScale === 1; left: true; right: outScale === 1 }
++    implicitWidth: modelData ? modelData.width / outScale : 0
++    implicitHeight: modelData ? modelData.height / outScale : 0
+     exclusionMode: ExclusionMode.Ignore
+     WlrLayershell.layer: WlrLayer.Overlay
+     WlrLayershell.namespace: "riley-overview"

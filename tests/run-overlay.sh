@@ -105,7 +105,7 @@ ok() { echo "PASS $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL $*"; fail=$((fail + 1)); }
 
 QMLBIN=${RILEYOVERVIEW_QML:-/usr/lib64/qt6/bin/qml}
-for tool in qmltestrunner-qt6 xmllint qs hyprctl grim wtype python3 patch "${RILEYOVERVIEW_HYPRLAND:-/usr/bin/Hyprland}" \
+for tool in qmltestrunner-qt6 xmllint qs hyprctl grim wtype python3 patch gcc "${RILEYOVERVIEW_HYPRLAND:-/usr/bin/Hyprland}" \
             "$QMLBIN" "$HOME/.local/bin/dp2-lock"; do
     command -v "$tool" >/dev/null || { echo "FAIL missing tool $tool"; echo "GATE FAIL"; exit 1; }
 done
@@ -119,6 +119,10 @@ if [ -f "$SRC_BIN" ]; then cp "$SRC_BIN" "$STAGE/bin/riley-overview"; chmod +x "
 if [ -f "$SRC_XSD" ]; then cp "$SRC_XSD" "$STAGE/share/riley-overview/config.xsd"; else bad "config.xsd missing: $SRC_XSD"; fi
 if [ -d "$SRC_SHELL/lib" ]; then cp "$SRC_SHELL"/lib/*.mjs "$UNIT/lib/" 2>/dev/null; fi
 cp "$TREE"/tests/overlay/unit/tst_*.qml "$UNIT/tests/"
+# the gate's pointer helper (real motion events inside the nest; a cursor warp sends none)
+if ! gcc -O2 -o "$BUILD/vpointer" "$TREE/tests/overlay/vpointer.c" -lwayland-client -lm > "$LOGS/vpointer.txt" 2>&1; then
+    bad "tests/overlay/vpointer.c does not build: $(head -n 3 "$LOGS/vpointer.txt" | tr '\n' ' ')"
+fi
 
 # Part 1: offscreen unit checks, one file at a time so a file that does not load is named.
 for t in model wallpaper; do
@@ -153,7 +157,7 @@ if [ -f "$STAGE/share/riley-overview/shell/shell.qml" ] && [ -x "$STAGE/bin/rile
     # setsid: a new session and process group whose id is the saved $! (no job control here, so setsid does not
     # fork), so an interrupted gate can end dp2-lock, timeout, the gate and everything it started by that ID.
     setsid "$HOME/.local/bin/dp2-lock" timeout -k 10 300 python3 -I "$TREE/tests/overlay/gate.py" \
-        --stage "$STAGE" --work "$LIVE" --shots "$SHOTS" > "$LOGS/live.txt" 2>&1 &
+        --stage "$STAGE" --work "$LIVE" --shots "$SHOTS" --vpointer "$BUILD/vpointer" > "$LOGS/live.txt" 2>&1 &
     group=$!
     wait "$group"
     rc=$?

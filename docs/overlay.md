@@ -186,5 +186,8 @@ onFrameSwapped() {...} }`).
 Seen in the nest while writing the gate (Quickshell 0.2.1, Hyprland 0.57.2): `Screen.devicePixelRatio` read in
 `Component.onCompleted` of a `PanelWindow`'s content is 1 even on the 1.25 output, because the surface has no output
 yet; read the ratio once the window is exposed (first frame). `hyprctl layers` reports global `x, y` and the logical
-size (RO-C: 3440,0 2752x1152). `hl.dsp.cursor.move` sends real pointer motion (hover works) and `wtype -k Escape`
-reaches the surface that has exclusive keyboard focus.
+size (RO-C: 3440,0 2752x1152). `hl.dsp.cursor.move` moves the cursor but sends no motion to a surface the pointer is
+already on (in the first integration run the hover stayed on the window under the cursor at map time), so the
+gate's hover check warps 4 px short and sends one real 4 px motion through the virtual-pointer protocol
+(`tests/overlay/vpointer.c`, built by `run-overlay.sh`). `wtype -k Escape` reaches the surface that has exclusive
+keyboard focus.

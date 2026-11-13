@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """M2 gate, live part: the overlay in a nested Hyprland. Run by tests/run-overlay.sh under dp2-lock, never alone:
 
-  dp2-lock python3 -I tests/overlay/gate.py --stage STAGE --work WORK --shots SHOTS
+  dp2-lock python3 -I tests/overlay/gate.py --stage STAGE --work WORK --shots SHOTS --vpointer VPOINTER
 
 STAGE holds bin/riley-overview and share/riley-overview/{shell/, config.xsd} (a copy of the tree or of an installed
 prefix, so the overlay's path never matches a resident copy in Marc's session). WORK takes the nest's config, the
@@ -40,6 +40,7 @@ TOL_RECT = 1.0               # logical px: the overlay may round its rectangles 
 TOL_DEV = 1.5                # device px: 1 logical px times 1.25, plus rounding
 TOL_RGB = 24                 # per channel, for a solid colour scaled by the compositor and Qt
 TARGET_MS = 100              # brief: first frame within 100 ms of the key press
+VPOINTER = None              # the pointer helper (--vpointer)
 
 COLOURS = {'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255), 'yellow': (255, 255, 0),
            'magenta': (255, 0, 255)}
@@ -446,8 +447,10 @@ def phase1(nest, run, stage, work, shots):
 
     # click a window: the test hook routes the point through the same handler as the overlay's MouseArea
     gx, gy = EXPECT1['green'][1][0] + EXPECT1['green'][1][2] / 2, 216 + 1064 / 2   # centre of green: 2367.4444, 748
-    nest.dispatch(f'hl.dsp.cursor.move({{ x = {int(gx)}, y = {int(gy)} }})')
-    time.sleep(0.1)
+    # a warp sends no motion to the surface: warp 4 px short, then one real 4 px motion (tests/overlay/vpointer.c)
+    nest.dispatch(f'hl.dsp.cursor.move({{ x = {int(gx) - 4}, y = {int(gy)} }})')
+    subprocess.run([str(VPOINTER), 'move', '4', '0'], env=nest.client_env(), capture_output=True, timeout=5)
+    nest.wait(lambda: (ov.state() or {}).get('hovered') == wins['green']['address'], timeout=1, step=0.05)
     hover = (ov.state() or {}).get('hovered')
     check('hover highlights the window under the cursor', hover == wins['green']['address'], f'hovered {hover}')
     hit = ov.ipc('click', f'{gx:.1f}', f'{gy:.1f}')
@@ -582,7 +585,10 @@ def main():
     ap.add_argument('--stage', required=True, type=Path)
     ap.add_argument('--work', required=True, type=Path)
     ap.add_argument('--shots', required=True, type=Path)
+    ap.add_argument('--vpointer', required=True, type=Path)
     a = ap.parse_args()
+    global VPOINTER
+    VPOINTER = a.vpointer.resolve()
     work, shots = a.work.resolve(), a.shots.resolve()
     work.mkdir(parents=True, exist_ok=True)
     shots.mkdir(parents=True, exist_ok=True)
