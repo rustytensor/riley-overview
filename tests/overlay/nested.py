@@ -13,7 +13,9 @@ from pathlib import Path
 
 RUNTIME = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}'))
 HYPR_RUNTIME = RUNTIME / 'hypr'
-WORKSPACE = 77          # an empty workspace, opened on DP-2 only for the test (Riley's gates use it too)
+# An empty workspace, opened on DP-2 only for the test (Riley's gates use 77 too). RILEYOVERVIEW_NEST_WORKSPACE picks
+# another one when 77 holds a window of the session (the nest never starts on a workspace in use).
+WORKSPACE = int(os.environ.get('RILEYOVERVIEW_NEST_WORKSPACE', '77'))
 
 
 def parent(*args):
