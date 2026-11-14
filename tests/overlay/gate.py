@@ -95,10 +95,11 @@ EXPECT2 = {'red': ('RO-A', (848, 456, 860, 720)), 'green': ('RO-A', (1732, 456, 
 # pill starts 6 px under the icon: y = 1280 + 20 + 6 = 1306, at least 12 px high (a 12 px font plus 8). Sample
 # (centre x, 1312): under green (x 1732 + 1270.8889/2 = 2367.4444) it changes when green is hovered; under red
 # (x 437.1111 + 635.4444 = 1072.5556) it does not (no pill under a tile that is not hovered). Both are clear of the
-# minimized row's one tile (x 1640..1800). Compared with phase 1's screenshot taken with the cursor off every tile.
+# minimized row's one tile (x 1640..1800). With green hovered: under green the pixel is not the backdrop; under red it
+# is RO-A's backdrop, white dimmed to 50 % (127.5 grey, BACKDROP below). (Not compared with the first screenshot: the
+# hover can still be on the tile that was under the cursor when the surface mapped, docs/overlay.md.)
 PILL_Y = 1312
 PILL_X = {'green': 1732 + W1 / 2, 'red': 24 + (3392 - (2 * W1 + 24)) / 2 + W1 / 2}
-TOL_SAME = 6                 # per channel: the same pixel in two screenshots of a still scene
 # Backdrop: Riley's wallpaper under black at 50 % (docs/overlay.md). RO-A has a white picture by name, RO-C the
 # catch-all cyan one. Dimmed: white -> 127.5 grey, cyan (0,255,255) -> (0,127.5,127.5).
 # Sample points, logical, away from the edges (blur), the tiles, the strip, the search field and the minimized row:
@@ -467,16 +468,15 @@ def phase1(nest, run, stage, work, shots):
     nest.wait(lambda: (ov.state() or {}).get('hovered') == wins['green']['address'], timeout=1, step=0.05)
     hover = (ov.state() or {}).get('hovered')
     check('hover highlights the window under the cursor', hover == wins['green']['address'], f'hovered {hover}')
-    before_im = imgs['RO-A']
     time.sleep(0.2)
     hov_im = grim(nest, shots, 'RO-A', 'p1-hover')
-    for name, want_change in (('green', True), ('red', False)):
+    backdrop = BACKDROP['RO-A'][1]
+    for name, want_pill in (('green', True), ('red', False)):
         p = (int(PILL_X[name]), PILL_Y)
-        a = before_im and before_im.getpixel(p)
         b = hov_im and hov_im.getpixel(p)
-        changed = bool(a and b) and not colour_ok(a, b, TOL_SAME)
-        check(f'title pill under {name} ' + ('shows on hover' if want_change else 'stays hidden (not hovered)'),
-              a and b and changed == want_change, f'{p}: {a} without hover, {b} with green hovered')
+        is_backdrop = bool(b) and colour_ok(b, backdrop)
+        check(f'title pill under {name} ' + ('shows on hover' if want_pill else 'stays hidden (not hovered)'),
+              b and is_backdrop != want_pill, f'{p} is {b} with green hovered (backdrop {backdrop})')
     hit = ov.ipc('click', f'{gx:.1f}', f'{gy:.1f}')
     focused = nest.wait(lambda: (nest.j('activewindow') or {}).get('class') == wins['green']['class'], timeout=2)
     check('click on green focuses green', focused, f'click -> {hit}; active {(nest.j("activewindow") or {}).get("class")}')
