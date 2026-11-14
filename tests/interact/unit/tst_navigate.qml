@@ -15,22 +15,28 @@ TestCase {
 
     function rc(id, x, y, w, h) { return { id: id, x: x, y: y, w: w, h: h }; }
 
-    // ---- M1 "A 5" (tests/layout/cases.mjs) spread on A {24, 216, 3392, 1200}, spacing 24 -----------------------
-    // s = 1176/1370 (two rows [w1 w2 w3], [w4 w5]). Widths: w1, w2 1130s = 969.9854; w3 1140s = 978.5693; w4, w5
-    // 1705s = 1463.5620; every height 685s = 588. Block 588 + 24 + 588 = 1200 -> row tops 216 and 828.
-    //   row 0: width 2*969.9854 + 978.5693 + 48 = 2966.5401, x0 = 24 + (3392 - 2966.5401)/2 = 236.7299,
-    //          x(w2) = x0 + 969.9854 + 24 = 1230.7153, x(w3) = 2224.7007
-    //   row 1: width 2*1463.5620 + 24 = 2951.1241, x0 = 24 + (3392 - 2951.1241)/2 = 244.4380, x(w5) = 1732
-    // Centres: w1 (721.7226, 510), w2 (1715.7080, 510), w3 (2713.9854, 510), w4 (976.2190, 1122), w5 (2463.7810, 1122).
-    // x ranges: w1 236.73..1206.72, w2 1230.72..2200.70, w3 2224.70..3203.27, w4 244.44..1708.00, w5 1732..3195.56.
-    readonly property real s5: 1176 / 1370
+    // ---- "A 5" (tests/layout/cases.mjs) spread on A {24, 216, 3392, 1200}, spacing 24, MC even-size rule ---------
+    // (docs/design.md "Spread layout: even sizes"; replaces M1's one common scale 1176/1370, which no longer holds
+    // for windows of different sizes.) S = 3392*1200 = 4070400, A = S/5 = 814080. w1, w2 (1130x685, a 774050) and
+    // w3 (1140x685, a 780900) are below A: t = 1. w4, w5 (1705x685, a 1167925): t4 = sqrt(814080/1167925) =
+    // 0.834884. Cap: bmin = 774050, 9*bmin far above every tile, no change. Rows [w1 w2 w3], [w4 w5] (cases.mjs),
+    // f = 1176/(685 + 685 t4) = 0.935639 (the vertical limit). Row 0: s = f, tiles 1057.2717 (w1, w2), 1066.6281
+    // (w3) x 640.9125; width 3181.1715 + 48, x0 = 24 + (3392 - 3229.1715)/2 = 105.4142, x(w2) = 1186.6859,
+    // x(w3) = 2267.9577, y 216. Row 1: s = t4 f = 0.781150, tiles 1331.8601 x 535.0875; width 2687.7202,
+    // x0 = 24 + (3392 - 2687.7202)/2 = 376.1399, x(w5) = 1732, y = 216 + 640.9125 + 24 = 880.9125 (block ends 1416).
+    // Centres: w1 (634.0501, 536.4562), w2 (1715.3218, 536.4562), w3 (2801.2717, 536.4562), w4 (1042.0699,
+    // 1148.4562), w5 (2397.9301, 1148.4562).
+    // x ranges: w1 105.41..1162.69, w2 1186.69..2243.96, w3 2267.96..3334.59, w4 376.14..1708.00, w5 1732..3063.86.
+    readonly property real f5: 1176 / (685 + 685 * Math.sqrt(814080 / 1167925))
     readonly property var a5: {
-        const s = s5, w12 = 1130 * s, w3 = 1140 * s, w45 = 1705 * s;
+        const f = f5, t4 = Math.sqrt(814080 / 1167925);
+        const w12 = 1130 * f, w3 = 1140 * f, h0 = 685 * f, w45 = 1705 * t4 * f, h1 = 685 * t4 * f;
         const x0 = 24 + (3392 - (2 * w12 + w3 + 48)) / 2;
         const x1 = 24 + (3392 - (2 * w45 + 24)) / 2;   // row 1
-        return [rc("w1", x0, 216, w12, 588), rc("w2", x0 + w12 + 24, 216, w12, 588),
-                rc("w3", x0 + 2 * (w12 + 24), 216, w3, 588),
-                rc("w4", x1, 828, w45, 588), rc("w5", x1 + w45 + 24, 828, w45, 588)];
+        const y1 = 216 + h0 + 24;
+        return [rc("w1", x0, 216, w12, h0), rc("w2", x0 + w12 + 24, 216, w12, h0),
+                rc("w3", x0 + 2 * (w12 + 24), 216, w3, h0),
+                rc("w4", x1, y1, w45, h1), rc("w5", x1 + w45 + 24, y1, w45, h1)];
     }
     // ---- M1 "A 12": 4x3 grid of 845x453 -> s = 1152/1359, tiles 716.2914 x 384 ---------------------------------
     // Row width 4*716.2914 + 72 = 2937.1656, x0 = 24 + (3392 - 2937.1656)/2 = 251.4172, column step 740.2914;
@@ -62,19 +68,19 @@ TestCase {
     }
 
     // ---- key sequences: the highlight after each key, from no highlight ----------------------------------------
-    // A 5 (centres and x ranges above):
-    //   down  -> w1   start: reading order w1 (cy 510, smallest cx)
-    //   right -> w2   in beam (same row) w2 994.0 away, w3 1992.3; w4, w5 out of beam
-    //   down  -> w4   both in beam (x overlap with 1230.72..2200.70); w4 959.89 away, w5 966.52
-    //   right -> w5   w5 in beam; w2, w3 (cx > 976.2) out of beam
-    //   up    -> w3   in beam w2 (966.52) and w3 (dx 250.20, dy 612 -> 661.17); w1 out of beam
-    //   left  -> w2   w2 (998.28) before w1 (in beam too, farther)
+    // A 5 (centres and x ranges above; the same sequence as M1, worked again on the MC rects):
+    //   down  -> w1   start: reading order w1 (cy 536.46, smallest cx)
+    //   right -> w2   in beam (same row) w2 1081.27 away, w3 2167.22; w4, w5 out of beam
+    //   down  -> w4   both in beam (x overlap with 1186.69..2243.96); w4 909.84 away, w5 916.79
+    //   right -> w5   w5 in beam; w2, w3 (cx > 1042.07) out of beam
+    //   up    -> w3   in beam w2 (916.79) and w3 (dx 403.34, dy 612 -> 732.96); w1 out of beam
+    //   left  -> w2   w2 (1085.95) before w1 (in beam too, farther)
     //   left  -> w1
     //   left  -> w1   nothing left of w1
     //   up    -> w1   nothing above
-    //   down  -> w4   in beam w4 (x 244.44..1708 overlaps 236.73..1206.72); w5 out
+    //   down  -> w4   in beam w4 (x 376.14..1708 overlaps 105.41..1162.69); w5 out
     //   down  -> w4   nothing below
-    //   left  -> w1   no rect left in beam; w1 (cx 721.72 < 976.22) is the only candidate, out of beam
+    //   left  -> w1   no rect left in beam; w1 (cx 634.05 < 1042.07) is the only candidate, out of beam
     // A 12 (a full grid: the in-beam neighbour is always the next tile in the row or column):
     //   up -> g00 (start), right g01, right g02, right g03, right g03 (edge), down g13, down g23, down g23 (edge),
     //   left g22, up g12, left g11, up g01, left g00
