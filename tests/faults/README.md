@@ -30,6 +30,7 @@ MC (Mission Control look): `tests/run-layout.sh --plant` now applies every `mc-*
 the even-out step skipped, so every window gets one common scale again (`t_i = maxScale` for all in
 `shell/lib/spread.mjs`). Caught by `spread::test_area_ratio` on "A full + 2 small" (15.36 > 9), "B full + 2 small"
 (11.56), "C full + 2 small" (9.83) and the cap case (78.66), and by `spread::test_exact` and `test_scales_rows` on
-every case with windows of different sizes. Until the integrator writes `mc-*.patch`, `--plant` reports
-`no fault patch`. `m1-spread-ignores-spacing.patch` was written against M1's `spread.mjs` and may need regenerating
-once the even-size rule lands.
+every case with windows of different sizes. `mc-even-out-skipped.patch` does exactly that (`t = maxScale` for
+every window instead of `preScales(...)`): caught, 26 checks failed, among them the four ratio checks above.
+`m1-spread-ignores-spacing.patch` was regenerated for the even-size `spread.mjs` (the M1 one no longer applied):
+caught, 35 checks failed (`spread::test_no_overlap` on every case with two or more windows).

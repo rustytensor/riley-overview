@@ -1,0 +1,11 @@
+--- a/shell/lib/spread.mjs
++++ b/shell/lib/spread.mjs
+@@ -99,7 +99,7 @@
+     if (!windows || windows.length === 0)
+         return { scale: opts.maxScale, fit: 1, rows: 0, rects: [] };
+ 
+-    const t = preScales(windows, area, opts.maxScale);
++    const t = windows.map(() => opts.maxScale);
+ 
+     // Work on copies so the caller's objects are never touched. Sizes are pre-scaled; centres are the real ones.
+     const entries = windows.map((win, index) => {

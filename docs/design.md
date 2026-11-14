@@ -170,6 +170,9 @@ Spacing is in screen pixels and never scaled. With every window of one size, ste
 result is M1's whenever M1's scale was at most `t` (all the equal-size cases of the gate and of the M2 and M3
 gates). One window: `s = min(maxScale, area.w/w, area.h/h)`, as in M1.
 
+Implementation note: a window with zero area (a client that reports a 0 size) gets `t = maxScale` and takes no
+part in `bmin` or the cap, so it cannot pull every other tile down to nothing.
+
 ## Desktops bar (`desktops.mjs`)
 
 The Spaces-style bar at the top uses the strip band of "Geometry": `band = {margin, margin, W - 2*margin,

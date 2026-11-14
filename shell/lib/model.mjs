@@ -12,14 +12,18 @@
 //       windows: [{address, class, title, x, y, w, h}], minimized: [{address, class, title, w, h}],
 //       strip: [{id, name, current, empty}] }
 //   minimizedRow(W, H, windows, cfg) -> { band, rects: [{address, x, y, w, h}] }
-//   layoutMonitor(entry, cfg) -> { area, scale, rows, windows: [{address, x, y, w, h}],
+//   layoutMonitor(entry, cfg) -> { area, scale, rows, windows: [{address, x, y, w, h, scale}],
 //                                  strip: [{index, id, name, current, empty, x, y, w, h}],
+//                                  names: [{index, id, name, current, empty, x, y, w, h}],
 //                                  minimized: [{address, x, y, w, h}] }
+//     scale: the largest window scale; windows[].scale: that window's own (docs/design.md "Spread layout").
+//     strip: the desktops bar expanded (hit-testing, drop target); names: the bar collapsed (desktops.mjs).
 //
 // Inputs are never modified. Hyprland 0.57 gives a special workspace no id at all (a client there has
 // workspace {address, type: "special", name}), so special workspaces are told by name or by a missing or
 // negative id. Everything here is in the monitor's logical pixels, relative to its top-left corner.
 
+import { desktopsBar } from "./desktops.mjs";
 import { spreadLayout } from "./spread.mjs";
 import { safeArea, stripGeometry } from "./strip.mjs";
 
@@ -146,14 +150,18 @@ export function layoutMonitor(entry, cfg) {
 
     const wins = (entry.windows || []).map(w => ({ id: w.address, x: w.x, y: w.y, w: w.w, h: w.h }));
     const spread = spreadLayout(wins, area, { spacing: cfg.windowSpacing, maxScale: cfg.maxScale });
-    const windows = spread.rects.map(r => ({ address: r.id, x: r.x, y: r.y, w: r.w, h: r.h }));
+    const windows = spread.rects.map(r => ({ address: r.id, x: r.x, y: r.y, w: r.w, h: r.h, scale: r.scale }));
 
     const items = entry.strip || [];
     const geo = stripGeometry(W, H, items.length, cfg);
     const strip = geo.rects.map((r, i) => ({ index: r.index, id: items[i].id, name: items[i].name,
                                              current: items[i].current, empty: items[i].empty,
                                              x: r.x, y: r.y, w: r.w, h: r.h }));
+    const bar = desktopsBar(W, H, items.length, cfg, false);
+    const names = bar.rects.map((r, i) => ({ index: r.index, id: items[i].id, name: items[i].name,
+                                             current: items[i].current, empty: items[i].empty,
+                                             x: r.x, y: r.y, w: r.w, h: r.h }));
 
-    return { area: area, scale: spread.scale, rows: spread.rows, windows: windows, strip: strip,
+    return { area: area, scale: spread.scale, rows: spread.rows, windows: windows, strip: strip, names: names,
              minimized: minimizedRow(W, H, minimized, cfg).rects };
 }

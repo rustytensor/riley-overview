@@ -1,9 +1,9 @@
 --- a/shell/lib/spread.mjs
 +++ b/shell/lib/spread.mjs
-@@ -112,9 +112,9 @@
-             const w = s * e.w;
-             const h = s * e.h;
-             rects[e.index] = { id: e.id, x: x, y: y + (rowH - h) / 2, w: w, h: h };
+@@ -146,9 +146,9 @@
+             const scale = e.t * f;
+             rects[e.index] = { id: e.id, x: x, y: y + (rowH - h) / 2, w: w, h: h, scale: scale };
+             top = Math.max(top, scale);
 -            x += w + opts.spacing;
 +            x += w;
          }
@@ -11,4 +11,4 @@
 +        y += rowH;
      });
  
-     return { scale: s, rows: best.length, rects: rects };
+     return { scale: top, fit: f, rows: best.length, rects: rects };

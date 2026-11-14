@@ -128,7 +128,10 @@ y `-12`), drawn above the image, visible while `highlighted && open && settled`;
 12x12 (the gate samples the disc 9 px from its centre). The highlight stays a frame outside the rect (M2).
 
 `WorkspaceStrip.qml`: `property int dropIndex: -1`: the entry under a drag gets a drop-target highlight (distinct
-from the current marker).
+from the current marker). From MC every surface's bar is expanded during a drag, so the previews (the rects
+`dropTarget` tests) are what is drawn under the pointer.
+
+From MC the close button sits above the accent ring (z 3), and the title pill and icon never cover it.
 
 `SearchField.qml` (drawing only; A's keys handle input):
 ```

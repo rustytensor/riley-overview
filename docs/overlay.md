@@ -96,37 +96,61 @@ All sizes in the surface's logical px; all rects are `{x, y, w, h}` objects rela
 property var toplevel            // the Quickshell Toplevel / HyprlandToplevel.wayland for ScreencopyView
 property string address
 property string appClass         // icon lookup (Quickshell.iconPath(appClass, true), fallback icon)
-property string title            // drawn under the tile, elided
+property string title            // in a pill under the tile while highlighted (MC), elided
 property var realRect            // where the window really is (monitor-relative logical)
 property var spreadRect          // where it goes in the overview
 property int animationMs         // 0 = jump
 property bool highlighted        // hover / keyboard highlight (set by the Overlay)
 property bool open               // true: animate realRect -> spreadRect; false: back to realRect
+property real tileScale          // MC: layoutMonitor windows[].scale (tile w / window w, at most 1)
 signal closeAnimationDone()      // after open went false and the move back finished (at once when animationMs 0)
 signal closeRequested(string address)   // close button (stub in M2: emits only)
 ```
 The live image fills `spreadRect` exactly, at full opacity, without tint when not highlighted (the gate samples
-its colour at 20/50/80 % of the rect). The highlight is drawn as a frame around the rect, not over it. The icon
-and title go below the rect, inside the spacing.
+its colour at 20/50/80 % of the rect). The highlight is drawn as a frame around the rect, not over it.
+
+From MC (Mission Control look): the image is clipped to rounded corners (radius 10, a `MultiEffect` mask on the
+`ScreencopyView`'s layer) over a soft `RectangularShadow`; it is never drawn above its real size (`tileScale <= 1`;
+filtered only when scaled down). The highlight is an accent ring 5 px outside the rect. No title under every tile:
+the title shows in a pill under the hovered (highlighted) tile. The app icon is small (a fifth of the tile's smaller
+side, 16 to 40 px) and centred on the bottom edge, so it stays below 90 % of the tile's height and off the gate's
+samples. `progress` runs linearly in time; the drawn rect is `Motion.zoomRect(realRect, spreadRect, progress)` on
+open and `zoomRect(spreadRect, realRect, 1 - progress)` on close (both ease out); a move reversed half-way starts
+from the rect drawn at that moment. The wall-clock timing (`FrameAnimation`) is M3's.
 
 `Backdrop.qml`
 ```
 property string wallpaper        // file path, "" for none
 property color fallbackColor     // Theme.base
-property real dim: 0.5           // black over the picture at this opacity (fixed: the gate expects 50 %)
+property real dim: 0.5           // black over the picture at this opacity once open (the gate expects 50 %)
 property int blurRadius: 48
+property bool open               // MC: the shell's tilesOpen
+property int animationMs         // MC: the shell's animationMs
+signal openAnimationDone()       // MC: the fade reached 1 (at once when animationMs 0)
 ```
-Fills its parent. With a wallpaper: the picture (cover fit), blurred, under black at `dim`. Without: `fallbackColor`
-under black at `dim`.
+Fills its parent. With a wallpaper: the picture (cover fit), blurred, under black. Without: `fallbackColor` under
+black. MC: `progress` follows `open` over `animationMs` with the tiles' wall-clock timing; the black's opacity is
+`easeOutCubic(progress) * dim` and the blur grows with it, so the backdrop fades in with the zoom and out with it.
+The Overlay counts the backdrop's `openAnimationDone` with the tiles' (it lands on the same frame), so the state
+file is written only once the dim is full.
 
-`WorkspaceStrip.qml`
+`WorkspaceStrip.qml` (MC: the desktops bar, `docs/design.md` "Desktops bar")
 ```
-property var entries             // layoutMonitor(...).strip
+property var entries             // layoutMonitor(...).strip: the expanded rects
+property var names               // MC: layoutMonitor(...).names: the collapsed rects
+property bool expanded           // MC: Desk.barExpanded(pointer, band, a drag runs)
+property var previews            // MC: per workspace id, [{toplevel, x, y, w, h}] as fractions of the monitor
+property string wallpaper        // MC: the previews' background
 property var screen              // ShellScreen: ScreencopyView of the output for the current workspace
 property color accent            // current marker
+property int animationMs         // MC: the collapse/expand cross-fade, at most 120 ms, 0 jumps
+property int hoveredIndex        // the entry under the pointer
 ```
-Draws each entry at its rect; the current one gets the accent frame, the empty one a plain "+" placeholder. No input
-handling (the Overlay hit-tests the same rects).
+Collapsed: one name pill per `names` rect (28 px high), the current one in the accent, the `plus` (else `empty`) one
+a "+". Expanded: at each `entries` rect a preview: the current workspace's still of the output, the others the
+wallpaper with their windows live at their places (only while expanded), the current one framed in the accent, the
+empty one a plain "+" panel. No input handling: the Overlay hit-tests `entries` (the pointer in the band means
+expanded).
 
 `MinimizedRow.qml`
 ```
@@ -176,11 +200,16 @@ rename; `seq` counts shows from 1 per instance). Times are `Date.now()` (ms sinc
       "device": { "w": 3440, "h": 1440 },            // logical * dpr, measured from the window, not the monitor
       "firstFrameAt": 1794594750160,                 // first frameSwapped of this window after the show
       "workspace": { "id": 1, "name": "1" },
-      "windows":   [ { "address", "class", "title", "real": {x,y,w,h}, "logical": {x,y,w,h}, "device": {x,y,w,h} } ],
+      "windows":   [ { "address", "class", "title", "visible", "scale", "real": {x,y,w,h}, "logical": {x,y,w,h},
+                       "device": {x,y,w,h} } ],
       "minimized": [ { "address", "class", "title", "logical": {x,y,w,h}, "device": {x,y,w,h} } ],
-      "strip":     [ { "index", "id", "name", "current", "empty", "logical": {x,y,w,h} } ]
+      "strip":     [ { "index", "id", "name", "current", "empty", "logical": {x,y,w,h} } ],
+      "bar":       { "expanded": false,
+                     "names": [ { "index", "id", "name", "current", "empty", "plus", "logical": {x,y,w,h} } ] }
   } ] }
 ```
+MC: `windows[].scale` is layoutMonitor's per-window scale; `bar.expanded` is whether the desktops bar shows its
+previews at that moment (pointer in the band, or a drag), `bar.names` the collapsed rects (`plus` true for the "+").
 `logical` rects are the tiles' final (spread) rects as drawn; `device` = `logical` times `dpr`. The first frame comes
 from the window's `frameSwapped` (for example `Connections { target: someItem.Window.window; function
 onFrameSwapped() {...} }`).
