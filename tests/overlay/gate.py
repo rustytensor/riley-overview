@@ -90,6 +90,15 @@ MIN1 = {'RO-A': [('magenta', (1640, 1296, 160, 120))], 'RO-C': []}
 #     x(yellow) = 682+682+24 = 1388; y = 216 + (912-552)/2 = 396.
 EXPECT2 = {'red': ('RO-A', (848, 456, 860, 720)), 'green': ('RO-A', (1732, 456, 860, 720)),
            'blue': ('RO-C', (682, 396, 682, 552)), 'yellow': ('RO-C', (1388, 396, 682, 552))}
+# Title pill (MC, brief "Quality of the tiles": no title under every tile, a pill under the hovered one). Phase 1's
+# tiles end at y = 216 + 1064 = 1280; the app icon (min(40, tile side/5) = 40 px) is centred on that edge, and the
+# pill starts 6 px under the icon: y = 1280 + 20 + 6 = 1306, at least 12 px high (a 12 px font plus 8). Sample
+# (centre x, 1312): under green (x 1732 + 1270.8889/2 = 2367.4444) it changes when green is hovered; under red
+# (x 437.1111 + 635.4444 = 1072.5556) it does not (no pill under a tile that is not hovered). Both are clear of the
+# minimized row's one tile (x 1640..1800). Compared with phase 1's screenshot taken with the cursor off every tile.
+PILL_Y = 1312
+PILL_X = {'green': 1732 + W1 / 2, 'red': 24 + (3392 - (2 * W1 + 24)) / 2 + W1 / 2}
+TOL_SAME = 6                 # per channel: the same pixel in two screenshots of a still scene
 # Backdrop: Riley's wallpaper under black at 50 % (docs/overlay.md). RO-A has a white picture by name, RO-C the
 # catch-all cyan one. Dimmed: white -> 127.5 grey, cyan (0,255,255) -> (0,127.5,127.5).
 # Sample points, logical, away from the edges (blur), the tiles, the strip, the search field and the minimized row:
@@ -379,7 +388,7 @@ def phase1(nest, run, stage, work, shots):
         dev = tuple(v * sc for v in rect)
         gotd = w and rect_of(w.get('device'))
         check(f'{name} spread rect {fmt(dev)} device', w and near(gotd, dev, TOL_DEV), f'got {gotd and fmt(gotd)}')
-        check(f'{name} title under its tile is the window title', w and w.get('title') == wins[name]['title'],
+        check(f'{name} tile carries the window title (shown in its hover pill)', w and w.get('title') == wins[name]['title'],
               f'{w and w.get("title")!r}')
     for mon, want in STRIP1.items():
         s = surface(st, mon) or {}
@@ -458,6 +467,16 @@ def phase1(nest, run, stage, work, shots):
     nest.wait(lambda: (ov.state() or {}).get('hovered') == wins['green']['address'], timeout=1, step=0.05)
     hover = (ov.state() or {}).get('hovered')
     check('hover highlights the window under the cursor', hover == wins['green']['address'], f'hovered {hover}')
+    before_im = imgs['RO-A']
+    time.sleep(0.2)
+    hov_im = grim(nest, shots, 'RO-A', 'p1-hover')
+    for name, want_change in (('green', True), ('red', False)):
+        p = (int(PILL_X[name]), PILL_Y)
+        a = before_im and before_im.getpixel(p)
+        b = hov_im and hov_im.getpixel(p)
+        changed = bool(a and b) and not colour_ok(a, b, TOL_SAME)
+        check(f'title pill under {name} ' + ('shows on hover' if want_change else 'stays hidden (not hovered)'),
+              a and b and changed == want_change, f'{p}: {a} without hover, {b} with green hovered')
     hit = ov.ipc('click', f'{gx:.1f}', f'{gy:.1f}')
     focused = nest.wait(lambda: (nest.j('activewindow') or {}).get('class') == wins['green']['class'], timeout=2)
     check('click on green focuses green', focused, f'click -> {hit}; active {(nest.j("activewindow") or {}).get("class")}')
