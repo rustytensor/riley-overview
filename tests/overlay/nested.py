@@ -34,7 +34,7 @@ class Nest:
 
     def start(self, timeout=20):
         # The workspace may exist (left active on DP-2 by an earlier test) but must hold no window.
-        if any(w['id'] == WORKSPACE and w.get('windows', 0) for w in json.loads(parent('workspaces', '-j'))):
+        if any(w.get('id') == WORKSPACE and w.get('windows', 0) for w in json.loads(parent('workspaces', '-j'))):
             raise RuntimeError(f'workspace {WORKSPACE} is in use in the session')
         before = {p.name for p in HYPR_RUNTIME.iterdir()} if HYPR_RUNTIME.exists() else set()
         cmd = (f'env -u HYPRLAND_INSTANCE_SIGNATURE HYPRLAND_NO_SD_VARS=1 HYPRLAND_NO_SD_TARGET=1 {self.env} '
