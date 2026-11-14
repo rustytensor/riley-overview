@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# M1 gate: layout, no UI. Runs the pure-logic modules (shell/lib/*.mjs) offscreen under Qt Quick Test against
-# hand-worked cases, and checks the config samples against data/config.xsd with xmllint.
+# Layout gate (M1, extended for MC "Mission Control look"): layout, no UI. Runs the pure-logic modules
+# (shell/lib/*.mjs) offscreen under Qt Quick Test against hand-worked cases, and checks the config samples against
+# data/config.xsd with xmllint. MC adds the even-size spread rule (tst_spread.qml, cases.mjs), the desktops bar and
+# its drop target (tst_desktops.qml), the zoom easing (tst_motion.qml) and layoutMonitor's new fields
+# (tst_layoutmonitor.qml).
 #
-#   tests/run-layout.sh           run the gate; prints PASS/FAIL per check, then GATE PASS or GATE FAIL
-#   tests/run-layout.sh --plant   copy the tree to $FORGE/plant-m1, apply tests/faults/m1-*.patch, run the gate
-#                                 there and expect it to fail (PLANTED FAULT CAUGHT)
+#   tests/run-layout.sh              run the gate; prints PASS/FAIL per check, then GATE PASS or GATE FAIL
+#   tests/run-layout.sh --plant      copy the tree to $FORGE/plant-mc, apply tests/faults/mc-*.patch, run the gate
+#                                    there and expect it to fail (PLANTED FAULT CAUGHT)
+#   tests/run-layout.sh --plant m1   the same with tests/faults/m1-*.patch in $FORGE/plant-m1
 #
 # Environment:
-#   RILEYOVERVIEW_BUILD_DIR  staging and logs (default /srv/devops/forge/build/riley-overview/gate-m1)
+#   RILEYOVERVIEW_BUILD_DIR  staging and logs (default /srv/devops/forge/build/riley-overview/gate-mc)
 #   RILEYOVERVIEW_PREFIX     an installed copy to test instead of the tree: $PREFIX/share/riley-overview/
 #                            {shell/lib/*.mjs, config.xsd, config.example.xml}
 #
-# Exit 0 only on GATE PASS (or, with --plant, on PLANTED FAULT CAUGHT).
+# Exit 0 only on GATE PASS (or, with --plant, on PLANTED FAULT CAUGHT). No processes or screenshots are left behind
+# (trap on every exit).
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -21,13 +26,15 @@ TREE=$(dirname "$HERE")
 FORGE=/srv/devops/forge/build/riley-overview
 
 if [ "${1:-}" = "--plant" ]; then
+    which=${2:-mc}
+    case $which in mc|m1) ;; *) echo "usage: $0 [--plant [mc|m1]]"; exit 2 ;; esac
     shopt -s nullglob
-    patches=("$TREE"/tests/faults/m1-*.patch)
+    patches=("$TREE"/tests/faults/$which-*.patch)
     if [ ${#patches[@]} -eq 0 ]; then
-        echo "no fault patch (tests/faults/m1-*.patch)"
+        echo "no fault patch (tests/faults/$which-*.patch)"
         exit 2
     fi
-    PLANT=$FORGE/plant-m1
+    PLANT=$FORGE/plant-$which
     rm -rf "$PLANT"
     mkdir -p "$PLANT/tree"
     tar -C "$TREE" --exclude=.git --exclude=build -cf - . | tar -C "$PLANT/tree" -xf -
@@ -53,7 +60,7 @@ if [ "${1:-}" = "--plant" ]; then
     exit 1
 fi
 
-BUILD=${RILEYOVERVIEW_BUILD_DIR:-$FORGE/gate-m1}
+BUILD=${RILEYOVERVIEW_BUILD_DIR:-$FORGE/gate-mc}
 PREFIX=${RILEYOVERVIEW_PREFIX:-}
 if [ -n "$PREFIX" ]; then
     SHARE=$PREFIX/share/riley-overview
@@ -94,14 +101,14 @@ done
 # Stage: lib/ holds the modules under test, tests/ the test sources (they import "../lib/<name>.mjs").
 rm -rf "$STAGE" "$LOGS"
 mkdir -p "$STAGE/lib" "$STAGE/tests" "$LOGS"
-for m in spread strip hittest config; do
+for m in spread strip hittest config desktops motion drop model; do
     if [ -f "$LIB/$m.mjs" ]; then cp "$LIB/$m.mjs" "$STAGE/lib/"; else bad "module $m.mjs missing in $LIB"; fi
 done
 cp -r "$TREE/tests/layout/." "$STAGE/tests/"
 if [ -f "$EXAMPLE" ]; then cp "$EXAMPLE" "$STAGE/tests/data/example.xml"; else bad "config.example.xml missing"; fi
 
 # Qt Quick Test, one file at a time so a file that does not load is named.
-for t in spread strip hittest config; do
+for t in spread strip hittest config desktops motion layoutmonitor; do
     log=$LOGS/tst_$t.txt
     QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 \
         timeout 120 qmltestrunner-qt6 -input "$STAGE/tests/tst_$t.qml" > "$log" 2>&1 &

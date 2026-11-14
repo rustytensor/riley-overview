@@ -62,14 +62,45 @@ export function notLarger(windows, out) {
     return null;
 }
 
-// One scale for all windows, the reported one, and never above maxScale.
-export function uniformScale(windows, out, maxScale) {
-    if (!(out.scale > 0) || out.scale > maxScale + EPS) return "scale " + out.scale + " outside (0, " + maxScale + "]";
+// MC: each rect is its window times the rect's own scale (aspect kept exactly), that scale is in (0, maxScale], and
+// the top-level scale is the largest of them.
+export function ownScale(windows, out, maxScale) {
     const m = byId(out.rects);
+    let top = 0;
     for (const w of windows) {
         const r = m[w.id];
-        if (Math.abs(r.w - w.w * out.scale) > 1e-4 || Math.abs(r.h - w.h * out.scale) > 1e-4)
-            return w.id + ": " + r.w + "x" + r.h + " is not scale " + out.scale + " of " + w.w + "x" + w.h;
+        if (!r) return w.id + ": no rect";
+        if (typeof r.scale !== "number" || !(r.scale > 0) || r.scale > maxScale + EPS)
+            return w.id + ": rect scale " + r.scale + " outside (0, " + maxScale + "]";
+        if (Math.abs(r.w - w.w * r.scale) > 1e-4 || Math.abs(r.h - w.h * r.scale) > 1e-4)
+            return w.id + ": " + r.w + "x" + r.h + " is not its scale " + r.scale + " of " + w.w + "x" + w.h;
+        top = Math.max(top, r.scale);
+    }
+    if (!(Math.abs(out.scale - top) <= 1e-9)) return "top-level scale " + out.scale + " is not the largest " + top;
+    return null;
+}
+
+// MC: largest tile area / smallest tile area <= cap (equality allowed: the cap binds exactly).
+export function areaRatio(out, cap) {
+    let lo = Infinity, hi = 0;
+    for (const r of out.rects) {
+        const a = r.w * r.h;
+        lo = Math.min(lo, a);
+        hi = Math.max(hi, a);
+    }
+    if (out.rects.length === 0) return null;
+    if (!(lo > 0)) return "a tile has no area";
+    const q = hi / lo;
+    return q <= cap * (1 + 1e-9) ? null : "tile area ratio " + q.toFixed(4) + " > cap " + cap;
+}
+
+// MC: the expected scale of every window (hand-worked in cases.mjs), tolerance 1e-6.
+export function scalesEqual(out, expected) {
+    const m = byId(out.rects);
+    for (const id in expected) {
+        const r = m[id];
+        if (!r) return "no rect for " + id;
+        if (!(Math.abs(r.scale - expected[id]) <= 1e-6)) return id + ".scale = " + r.scale + ", want " + expected[id];
     }
     return null;
 }

@@ -24,3 +24,12 @@ checks (both strip drags' drop targets and landing workspaces, and workspace 6 n
 points the unit's `ExecStart` at `<prefix>/bin/../libexec/riley-overview`, which does not exist. Caught by the unit's
 ExecStart line check and by `systemd-analyze --user verify` (exit 1, "is not executable"); the M1 to M3 runs are then
 skipped.
+
+MC (Mission Control look): `tests/run-layout.sh --plant` now applies every `mc-*.patch` in
+`/srv/devops/forge/build/riley-overview/plant-mc` (`--plant m1` keeps the M1 run in `plant-m1`). MC fault (brief):
+the even-out step skipped, so every window gets one common scale again (`t_i = maxScale` for all in
+`shell/lib/spread.mjs`). Caught by `spread::test_area_ratio` on "A full + 2 small" (15.36 > 9), "B full + 2 small"
+(11.56), "C full + 2 small" (9.83) and the cap case (78.66), and by `spread::test_exact` and `test_scales_rows` on
+every case with windows of different sizes. Until the integrator writes `mc-*.patch`, `--plant` reports
+`no fault patch`. `m1-spread-ignores-spacing.patch` was written against M1's `spread.mjs` and may need regenerating
+once the even-size rule lands.

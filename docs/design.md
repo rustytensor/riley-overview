@@ -34,7 +34,7 @@ What Quickshell does not give, and how it is covered:
 | `shell/Config.qml`, `shell/Theme.qml` | Singletons: the config (xmllint, then `config.mjs`) and the bar's colours and font. |
 | `shell/TestHook.qml` | The state files of `docs/overlay.md`, only with `RILEYOVERVIEW_TEST_DIR` set. |
 | `shell/components/*.qml` | `WindowTile`, `Backdrop`, `WorkspaceStrip`, `MinimizedRow`: drawing only, no input. |
-| `shell/lib/*.mjs` | Pure logic, no Quickshell imports: `spread.mjs`, `strip.mjs`, `hittest.mjs`, `config.mjs`, `model.mjs`, `wallpaper.mjs`. Tested offscreen. |
+| `shell/lib/*.mjs` | Pure logic, no Quickshell imports: `spread.mjs`, `strip.mjs`, `desktops.mjs`, `motion.mjs`, `hittest.mjs`, `config.mjs`, `model.mjs`, `wallpaper.mjs`. Tested offscreen. |
 | `data/config.xsd` | The config schema; `data/config.example.xml` spells out the defaults. |
 | `bin/riley-overview` | `riley-overview [run\|toggle\|show\|hide]`. |
 | `tests/run-layout.sh` | M1 gate (Qt Quick Test with `qmltestrunner-qt6`, `QT_QPA_PLATFORM=offscreen`, plus xmllint). |
@@ -120,27 +120,80 @@ For a monitor of logical size W x H and config `cfg`:
 
 No rounding in the modules; the overlay rounds when it draws.
 
-## Spread layout (`spread.mjs`)
+## Spread layout (`spread.mjs`): even sizes (Mission Control)
 
-GNOME's natural layout in its row form: windows keep their reading order and stay roughly where they are.
+Marc's spec (2026-11-13): windows of very different real sizes end up close in size, every window keeps its
+aspect ratio, the set fills the safe area in a tight, centred, balanced layout with even gaps, and the order
+still follows the real positions. Big windows shrink more than small ones; no window is ever shown above its
+real size (above 1.0), so no live image is upscaled.
 
-`spreadLayout(windows, area, opts) -> { scale, rows, rects }`, with `windows` `[{id, x, y, w, h}]`
-(not modified), `area` the safe area, `opts` `{spacing, maxScale}`. `rects` holds one `{id, x, y, w, h}` per
-window in input order; `scale` is the one factor applied to every window; `rows` the number of non-empty rows. No
-windows: `{scale: maxScale, rows: 0, rects: []}`.
+`spreadLayout(windows, area, opts) -> { scale, fit, rows, rects }`, with `windows` `[{id, x, y, w, h}]`
+(not modified), `area` the safe area, `opts` `{spacing, maxScale}`. `rects` holds one `{id, x, y, w, h, scale}`
+per window in input order, `scale` being that window's own factor (tile width / window width). The top-level
+`scale` is the largest of them (for windows of one size it is the one common factor, as in M1), `fit` the common
+fit factor of step 4, `rows` the number of non-empty rows. No windows: `{scale: maxScale, fit: 1, rows: 0,
+rects: []}`.
 
-1. Sort the windows by (centre y, centre x, id).
-2. For each r from 1 to n, split the sorted list into at most r rows. `ideal = (sum of widths) / r`. For every row
-   but the last, take windows in order while the row is empty, or `rowWidth + w <= ideal`, or
-   `|1 - (rowWidth + w)/ideal| < |1 - rowWidth/ideal|`; the last row takes the rest. Drop empty rows.
-3. The candidate's scale is `min(maxScale, min over rows of (area.w - (k-1)*spacing) / (sum of widths in the row),
-   (area.h - (rows-1)*spacing) / (sum over rows of the tallest height in the row))`, k the row's window count.
-4. Keep the candidate with the largest scale; on a tie keep the smaller r (strictly greater replaces).
-5. Place: the rows, each `scale * tallest` high, stacked with `spacing` between them, the block centred vertically
-   in the area. In each row the windows are ordered by (centre x, centre y, id), `scale*w` by `scale*h`, with
+With n windows, `a_i = w_i * h_i` and the safe area's `S = area.w * area.h`:
+
+1. **Target area.** `A = S / n`: every window gets an equal share of the safe area.
+2. **Even out.** `t_i = min(maxScale, sqrt(A / a_i))`. A window bigger than its share shrinks to area `A`; a
+   smaller one keeps its real size (it is never enlarged, so it does not grow to `A`).
+3. **Ratio cap.** `CAP = 9` on tile areas. With `b_i = t_i^2 * a_i` and `bmin` the smallest `b_i`:
+   `t_i = min(t_i, sqrt(CAP * bmin / a_i))`. So the largest tile is at most 9 times the area (3 times the width
+   and height) of the smallest. Why 9: a cap is needed because small windows cannot grow (1.0 at most), so with a
+   tiny dialog the even-out alone would leave a maximised window 30 or more times its area; at 9 a full-screen
+   window still reads as the big one next to an 800x600 window (step 2 alone already gives about 3 to 4.5 there,
+   the cap does not bite), while a 300x200 dialog shrinks a maximised window to a third of its width, still
+   recognisable. A cap of 4 shrank a maximised window to the size of an 800x600 one next to such a dialog; 16 let
+   it stay 4 times as wide, which is the unevenness Marc asked to remove. The common factor of step 4 keeps the
+   ratio.
+4. **Balanced rows.** The M1 row packing (below) on the pre-scaled sizes `t_i*w_i x t_i*h_i`, with the real
+   positions for the order: it picks the rows and one common fit factor `f = min(1, ...)` so everything fits the
+   safe area with `spacing` between tiles and rows. Rows are centred, the block is centred vertically.
+5. **Final size.** Window i is drawn `s_i = t_i * f` times its size: `s_i <= maxScale <= 1`.
+
+The M1 row packing, on sizes `w'_i x h'_i` (here the pre-scaled ones) and centres from the real windows:
+
+1. Sort the windows by (real centre y, real centre x, id).
+2. For each r from 1 to n, split the sorted list into at most r rows. `ideal = (sum of w') / r`. For every row
+   but the last, take windows in order while the row is empty, or `rowWidth + w' <= ideal`, or
+   `|1 - (rowWidth + w')/ideal| < |1 - rowWidth/ideal|`; the last row takes the rest. Drop empty rows.
+3. The candidate's factor is `min(1, min over rows of (area.w - (k-1)*spacing) / (sum of w' in the row),
+   (area.h - (rows-1)*spacing) / (sum over rows of the tallest h' in the row))`, k the row's window count.
+4. Keep the candidate with the largest factor `f`; on a tie keep the smaller r (strictly greater replaces).
+5. Place: the rows, each `f * tallest h'` high, stacked with `spacing` between them, the block centred vertically
+   in the area. In each row the windows are ordered by (real centre x, real centre y, id), `f*w'` by `f*h'`, with
    `spacing` between them, the row centred horizontally, each window centred vertically in its row.
 
-Spacing is in screen pixels and never scaled. Windows are never enlarged (`maxScale <= 1`).
+Spacing is in screen pixels and never scaled. With every window of one size, steps 1 to 3 give one `t` and the
+result is M1's whenever M1's scale was at most `t` (all the equal-size cases of the gate and of the M2 and M3
+gates). One window: `s = min(maxScale, area.w/w, area.h/h)`, as in M1.
+
+## Desktops bar (`desktops.mjs`)
+
+The Spaces-style bar at the top uses the strip band of "Geometry": `band = {margin, margin, W - 2*margin,
+stripHeight}`. The safe area does not change, so a bar that grows never covers a tile and nothing re-lays out.
+
+- `NAMES_HEIGHT = 28`: the collapsed names row.
+- `desktopsBar(W, H, count, cfg, expanded) -> { band, zone, expanded, rects: [{index, x, y, w, h, plus}] }`.
+  `count` as for `stripGeometry` (the monitor's workspaces plus the empty one, which is the "+" entry: `plus` is
+  true for `index == count-1` only). Expanded: the rects are exactly `stripGeometry`'s (live previews). Collapsed:
+  the same `x` and `w`, `y = band.y`, `h = min(NAMES_HEIGHT, stripHeight)` (one name pill per workspace, the "+"
+  last). `zone = band` in both states.
+- `barExpanded(px, py, band, dragging) -> bool`: `dragging`, or the point in `band` (half-open). So the pointer
+  anywhere in the band shows the previews, and every surface shows them during a drag.
+- Hit-testing and the drop target always use the expanded rects (`layoutMonitor(...).strip`, unchanged): a point
+  in a preview is in the band, so the bar is expanded whenever such a point is tested. `layoutMonitor` also gives
+  `names`, the collapsed rects merged with the same items, for drawing.
+
+## Motion (`motion.mjs`)
+
+- `easeOutCubic(p) = 1 - (1 - p)^3` for `p` clamped to [0, 1].
+- `zoomRect(from, to, p) -> {x, y, w, h}`: `from + easeOutCubic(p) * (to - from)` per field. A tile opens from its
+  window's real rect (`from`) to its spread rect (`to`) with `p` going 0 to 1 over `animationMs`; it closes with
+  `p` going back. The backdrop's opacity is `easeOutCubic(p)` times its full dim. `animationMs` 0 (Riley's
+  animations off) means `p` jumps.
 
 ## Hit-testing (`hittest.mjs`)
 
@@ -191,6 +244,7 @@ The interfaces are in `docs/interact.md`; this is how the code meets them.
 
 ## Gates
 
-- M1 `tests/run-layout.sh` (this milestone): 274 checks on hand-worked values (`tests/layout/cases.mjs` and the
-  comments in each `tst_*.qml`). `--plant` applies `tests/faults/m1-*.patch` to a copy and expects the gate to fail.
+- M1 and MC `tests/run-layout.sh`: hand-worked values (`tests/layout/cases.mjs` and the comments in each
+  `tst_*.qml`); from MC the spread cases follow the even-size rule. `--plant` applies `tests/faults/mc-*.patch`
+  (`--plant m1`: `m1-*.patch`) to a copy and expects the gate to fail.
 - M2 `tests/run-overlay.sh`, M3 `tests/run-interact.sh`: nested Hyprland on DP-2 under `dp2-lock`; see the brief.
