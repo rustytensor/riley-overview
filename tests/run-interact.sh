@@ -10,7 +10,7 @@
 #     surface and its pixels, arrow keys and Return, search (visible set, hidden tiles not drawn, Escape, BackSpace),
 #     Return on no match runs the launcher (a fake fuzzel on PATH), the close button (hover, pixels, click), middle
 #     click, three real drags (strip workspace, the other output, the empty new workspace) with hyprctl showing the
-#     result and the overview re-laid out, and the open animation with animations on (within 200 ms) and off (none).
+#     result and the overview re-laid out, and the open animation with animations on (200-250 ms, eased out) and off (none).
 #
 #   tests/run-interact.sh           run the gate; prints PASS/FAIL per check, then GATE PASS or GATE FAIL
 #   tests/run-interact.sh --plant   copy the tree to $FORGE/plant-m3, apply tests/faults/m3-*.patch, run the gate

@@ -156,11 +156,19 @@ DRAG3 = {'name': 'blue', 'from': (1720, 816), 'to': (2174, 84), 'ws': 6, 'not': 
 #
 # Animations: with Hyprland's animations off (shows 1 to 5) animationMs is 0 and no tile takes an in-between step
 # (anim.frames 0). With them on (last phase, a fresh overlay): animationMs 200 (config default, cap 200); the open
-# move takes at least 3 in-between steps (200 ms at 60 Hz is about 12 frames) and anim.doneAt - anim.startedAt is
-# at most 200 ms plus one 60 Hz frame (the last step lands on a frame): 216.7 ms.
+# move takes at least 3 in-between steps (200 ms at 60 Hz is about 12 frames).
+# MC (brief "Motion": a smooth ease-out of about 200-250 ms, the backdrop fading with it): anim.doneAt -
+# anim.startedAt, which now also waits for the backdrop, is between 200 ms less half a 60 Hz frame (a tile lands on
+# the frame nearest to the end, docs/design.md "Motion" and WindowTile's timing: 191.7 ms) and 250 ms.
+# Ease-out: from each tile's openTrace (its drawn rect per step), the fraction of the move done at half the time,
+# interpolated between the steps either side of 100 ms on the axis that moves most. easeOutCubic(0.5) = 1 - 0.5^3 =
+# 0.875; a linear move gives 0.5. Expected above 0.75 for every tile that moves at least 40 px (interpolating a
+# concave curve between steps 16.7 ms apart reads at most about 0.01 low).
 ANIM_MS = 200
-ANIM_LIMIT = ANIM_MS + FRAME_MS
+ANIM_LOW = ANIM_MS - FRAME_MS / 2
+ANIM_LIMIT = 250
 ANIM_MIN_FRAMES = 3
+EASE_MID_MIN = 0.75
 
 results = []
 
@@ -793,6 +801,23 @@ def phase_mouse(nest, ov, run, work, shots, wins, procs):
 
 
 # ---- phase 3: animations on ---------------------------------------------------------------------------------------
+def mid_fraction(w, min_px=40):
+    """Fraction of the open move done at ANIM_MS/2, from the tile's openTrace, on the axis that moves most."""
+    real, to, tr = w.get('real'), w.get('logical'), w.get('openTrace') or []
+    if not real or not to or len(tr) < 2:
+        return None
+    k = max('xywh', key=lambda q: abs(to[q] - real[q]))
+    span = to[k] - real[k]
+    if abs(span) < min_px:
+        return None
+    pts = [(0.0, 0.0)] + [(p['e'], (p[k] - real[k]) / span) for p in tr]
+    half = ANIM_MS / 2
+    for (e0, f0), (e1, f1) in zip(pts, pts[1:]):
+        if e0 <= half <= e1 and e1 > e0:
+            return f0 + (f1 - f0) * (half - e0) / (e1 - e0)
+    return None
+
+
 def phase_anim(nest, run, stage, work):
     print('\n== animations on: the open animation', flush=True)
     nest.ctl('eval', 'hl.config({ animations = { enabled = true } })')
@@ -809,8 +834,16 @@ def phase_anim(nest, run, stage, work):
     check(f'animations on: animationMs {ANIM_MS}', st and st.get('animationMs') == ANIM_MS, f'{st and st.get("animationMs")}')
     check(f'animations on: the open move ran ({ANIM_MIN_FRAMES}+ in-between steps over {tiles} tiles)',
           tiles > 0 and (anim.get('frames') or 0) >= ANIM_MIN_FRAMES, f'anim {anim}')
-    check(f'animations on: the open animation completes within {ANIM_MS} ms (+1 frame: {ANIM_LIMIT:.1f} ms)',
-          anim.get('startedAt') and anim.get('doneAt') and 0 < took <= ANIM_LIMIT, f'took {took:.1f} ms')
+    check(f'animations on: the open animation (tiles and backdrop) takes {ANIM_LOW:.1f} to {ANIM_LIMIT} ms',
+          anim.get('startedAt') and anim.get('doneAt') and ANIM_LOW <= took <= ANIM_LIMIT, f'took {took:.1f} ms')
+    mids = []
+    for s in (st or {}).get('surfaces', []):
+        for w in s.get('windows', []):
+            mids.append((w.get('class'), mid_fraction(w)))
+    moving = [(c, m) for c, m in mids if m is not None]
+    check(f'animations on: the open move eases out (done at half time > {EASE_MID_MIN}; linear 0.5, ease-out 0.875)',
+          moving and all(m > EASE_MID_MIN for _, m in moving),
+          ', '.join(f'{c} {m:.3f}' for c, m in moving) or f'no trace: {mids}')
     ov.ipc('toggle')
     check('animations on: toggle closes', closed(nest, ov, timeout=3))
     ov.stop()
