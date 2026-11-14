@@ -201,14 +201,15 @@ rename; `seq` counts shows from 1 per instance). Times are `Date.now()` (ms sinc
       "firstFrameAt": 1794594750160,                 // first frameSwapped of this window after the show
       "workspace": { "id": 1, "name": "1" },
       "windows":   [ { "address", "class", "title", "visible", "scale", "real": {x,y,w,h}, "logical": {x,y,w,h},
-                       "device": {x,y,w,h} } ],
+                       "device": {x,y,w,h}, "openTrace": [ {e, x, y, w, h} ] } ],
       "minimized": [ { "address", "class", "title", "logical": {x,y,w,h}, "device": {x,y,w,h} } ],
       "strip":     [ { "index", "id", "name", "current", "empty", "logical": {x,y,w,h} } ],
       "bar":       { "expanded": false,
                      "names": [ { "index", "id", "name", "current", "empty", "plus", "logical": {x,y,w,h} } ] }
   } ] }
 ```
-MC: `windows[].scale` is layoutMonitor's per-window scale; `bar.expanded` is whether the desktops bar shows its
+MC: `windows[].scale` is layoutMonitor's per-window scale; `windows[].openTrace` the tile's last animated open
+move, one drawn rect per step with `e` the ms since the move started (empty when animations are off); `bar.expanded` is whether the desktops bar shows its
 previews at that moment (pointer in the band, or a drag), `bar.names` the collapsed rects (`plus` true for the "+").
 `logical` rects are the tiles' final (spread) rects as drawn; `device` = `logical` times `dpr`. The first frame comes
 from the window's `frameSwapped` (for example `Connections { target: someItem.Window.window; function

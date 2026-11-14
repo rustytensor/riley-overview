@@ -221,6 +221,15 @@ PanelWindow {
     }
 
     // This surface for the test hook's state file.
+    // The tile's last open move (WindowTile.openTrace), for the state file.
+    function traceOf(address) {
+        for (let i = 0; i < tiles.count; i++) {
+            const t = tiles.itemAt(i);
+            if (t && t.address === address) return t.openTrace;
+        }
+        return [];
+    }
+
     function describe() {
         const dpr = frameDpr;
         const L = layout;
@@ -241,7 +250,7 @@ PanelWindow {
             windows: L ? L.windows.map(w => ({
                 address: w.address, class: info[w.address].class, title: info[w.address].title,
                 visible: overview ? overview.isVisible(w.address) : true, scale: w.scale,
-                real: real[w.address], logical: r4(w, 1), device: r4(w, dpr) })) : [],
+                real: real[w.address], logical: r4(w, 1), device: r4(w, dpr), openTrace: traceOf(w.address) })) : [],
             minimized: L ? L.minimized.map(w => ({
                 address: w.address, class: info[w.address].class, title: info[w.address].title,
                 logical: r4(w, 1), device: r4(w, dpr) })) : [],

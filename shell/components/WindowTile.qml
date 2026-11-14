@@ -58,6 +58,9 @@ Item {
     readonly property int steps: stepCount
     property int stepCount: 0
     onProgressChanged: if (progress > 0 && progress < 1) stepCount++
+    // The last open move as drawn, for the test hook: one { e, x, y, w, h } per step (e = ms since the move
+    // started, the rect after that step). Started afresh on each animated open.
+    property var openTrace: []
 
     function num(r, k) { return r && isFinite(r[k]) ? r[k] : 0; }
     function rectOf(r) { return { x: num(r, "x"), y: num(r, "y"), w: num(r, "w"), h: num(r, "h") }; }
@@ -104,10 +107,18 @@ Item {
         if (elapsed + frameMs / 2 >= moveDuration) {
             move.stop();
             progress = moveTo;
+            traceStep(elapsed);
             if (open) openAnimationDone(); else closeAnimationDone();
             return;
         }
         progress = moveFrom + (moveTo - moveFrom) * t;
+        traceStep(elapsed);
+    }
+
+    function traceStep(elapsed) {
+        if (moveTo < 1) return;
+        const r = zoomed;
+        openTrace.push({ e: elapsed, x: r.x, y: r.y, w: r.w, h: r.h });
     }
 
     function run() {
@@ -126,6 +137,7 @@ Item {
         moveFrom = progress;
         moveTo = to;
         moveStart = Date.now();
+        if (to === 1) openTrace = [];
         moveDuration = Math.max(1, Math.round(dur * Math.abs(to - progress)));
         move.start();
     }
