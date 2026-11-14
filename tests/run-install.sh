@@ -204,7 +204,8 @@ else
         name=$1 want=$2
         log=$LOGS/run-$name.txt
         echo "running tests/run-$name.sh on $PREFIX"
-        RILEYOVERVIEW_PREFIX=$PREFIX bash "$TREE/tests/run-$name.sh" > "$log" 2>&1 &
+        # each sub-gate in its own build directory: they wipe their logs/ on start, which would take ours
+        RILEYOVERVIEW_BUILD_DIR=$BUILD/sub-$name RILEYOVERVIEW_PREFIX=$PREFIX bash "$TREE/tests/run-$name.sh" > "$log" 2>&1 &
         child=$!
         wait "$child"
         rc=$?
