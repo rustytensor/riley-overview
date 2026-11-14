@@ -43,6 +43,8 @@
 #     (reports 1 to 3): M1 274 passed, M2 101, M3 174, 0 failed. M2 was 99; its one timing check of the
 #     `riley-overview toggle` command became three key-path checks (lead's decision on R1: time, shows through the
 #     global shortcut, the key closes it), so 99 - 1 + 3 = 101.
+#     MC (Mission Control look) moved them to M1 397 (the even-size cases, desktops bar and motion checks), M2 103
+#     (101 + the two hover title pill checks) and M3 175 (174 + the ease-out check), the MC report's real runs.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -197,7 +199,7 @@ check "launcher: an unknown command puts the usage line first on stderr" \
 if [ $fail -ne 0 ]; then
     bad "M1 to M3 not run: the install checks above failed"
 else
-    for g in "layout 274" "overlay 101" "interact 174"; do
+    for g in "layout 397" "overlay 103" "interact 175"; do
         set -- $g
         name=$1 want=$2
         log=$LOGS/run-$name.txt
